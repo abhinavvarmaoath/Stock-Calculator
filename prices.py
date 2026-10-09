@@ -23,8 +23,13 @@ def history(sym, years=2):
 
     try:
         import yfinance as yf
-        df = yf.Ticker(sym).history(period='{}y'.format(years), auto_adjust=True, timeout=10)
-    except Exception:
+        df = yf.Ticker(sym).history(period='{}y'.format(years), auto_adjust=True, timeout=10, raise_errors=True)
+    except Exception as e:
+        # raise_errors because otherwise yfinance sometimes hides a failed fetch as an empty
+        # result, which would read as "no such symbol". yahoo not knowing the symbol is
+        # different from us not being able to ask
+        if type(e).__name__ in ('YFTickerMissingError', 'YFPricesMissingError'):
+            raise PriceError('No price history found for {}. Check the symbol.'.format(sym))
         raise PriceError("Couldn't get prices for {} right now.".format(sym))
 
     if df is None or df.empty or 'Close' not in df:

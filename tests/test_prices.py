@@ -70,6 +70,36 @@ def test_network_error(monkeypatch):
     assert 'no route' not in str(e.value)       # raw error text isn't shown to the user
 
 
+def test_history_asks_yfinance_to_raise_its_errors(monkeypatch):
+    seen = {}
+
+    class Ticker:
+        def __init__(self, sym):
+            pass
+
+        def history(self, **kw):
+            seen.update(kw)
+            return closes(100)
+
+    monkeypatch.setitem(__import__('sys').modules, 'yfinance', types.SimpleNamespace(Ticker=Ticker))
+    prices.history('ABC')
+    assert seen['raise_errors'] is True
+
+
+def test_yahoo_not_knowing_the_symbol_is_not_a_network_problem(monkeypatch):
+    class YFTickerMissingError(Exception):
+        pass
+
+    class YFPricesMissingError(Exception):
+        pass
+
+    for err in (YFTickerMissingError('possibly delisted'), YFPricesMissingError('no data')):
+        fakeyf(monkeypatch, boom=err)
+        with pytest.raises(prices.PriceError, match='No price history found for NOPE'):
+            prices.history('NOPE')
+        prices.cache.clear()
+
+
 def test_unknown_symbol(monkeypatch):
     fakeyf(monkeypatch, df=pd.DataFrame())
     with pytest.raises(prices.PriceError) as e:
