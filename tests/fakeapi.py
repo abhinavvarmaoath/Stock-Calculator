@@ -89,8 +89,9 @@ def problems(req):
 
 
 class FakeAPI:
-    def __init__(self, replies):
-        # each reply is a message (see reply()), an error(), or a function of the request that gives one
+    def __init__(self, replies, port=0):
+        # each reply is a message (see reply()), an error(), or a function of the request that gives one.
+        # port 0 picks a free port
         self.replies = list(replies)
         self.requests = []
         self.lock = threading.Lock()
@@ -132,7 +133,7 @@ class FakeAPI:
             def log_message(self, *args):
                 pass
 
-        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
         self.server.daemon_threads = True
 
     @property
