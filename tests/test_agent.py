@@ -17,19 +17,6 @@ def model(monkeypatch):
     monkeypatch.setenv('ANTHROPIC_MODEL', 'test-model')
 
 
-@pytest.fixture
-def fake():
-    made = []
-
-    def make(*replies):
-        s = fa.FakeAPI(replies).start()
-        made.append(s)
-        return s
-    yield make
-    for s in made:
-        s.stop()
-
-
 # the loop
 
 def test_answer_without_tools(fake):
