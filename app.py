@@ -1,13 +1,18 @@
 import math
 import re
 
-from flask import Flask, render_template, request, redirect, url_for
+from dotenv import load_dotenv
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 
+import agent
 import prices
 import sim
 from calc import calc
 
+load_dotenv()       # the assistant's key and model live in .env
+
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024        # the assistant takes a chat, never anything big
 
 # key, label, lowest, can it be the lowest, highest, required
 calcfields = [
@@ -155,6 +160,42 @@ def simulate():
     return render_template('sim2.html', res=res, stksymbol=stksymbol, horizon=horizons[ndays],
                            method=method, src=src, fanrows=fanrows, binrows=binrows,
                            chartdata=chartdata, args=args)
+
+
+examples = [
+    'I bought 100 shares of AAPL at $180 and paid $5 commission each way. With 15% tax, should I sell now or hold for 3 months?',
+    "What's my break-even price on 50 shares of MSFT bought at $410 with $9.99 commission each way?",
+    'How risky is holding 20 shares of TSLA that I bought at $250 for the next 6 months?',
+]
+
+
+@app.route('/agent')
+def assistant():
+    ok, why = agent.configured()
+    return render_template('agent.html', ok=ok, why=why, examples=examples)
+
+
+@app.route('/api/agent', methods=['POST'])
+def agentapi():
+    ok, why = agent.configured()
+    if not ok:
+        return jsonify(error=why), 503
+    if not request.is_json:         # json only, so another site can't make your browser send this
+        return jsonify(error='Send JSON.'), 415
+    fine, wait = agent.allowed(request.remote_addr)
+    if not fine:
+        r = jsonify(error='Slow down a little. Try again in {} seconds.'.format(wait))
+        r.status_code = 429
+        r.headers['Retry-After'] = str(wait)
+        return r
+    try:
+        msgs = agent.clean(request.get_json(silent=True))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    try:
+        return jsonify(agent.run(msgs))
+    except agent.AgentError as e:
+        return jsonify(error=str(e)), e.status
 
 
 if __name__ == '__main__':

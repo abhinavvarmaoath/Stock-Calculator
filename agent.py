@@ -154,13 +154,18 @@ def final(resp):
     return text or "I didn't get an answer back. Please try again."
 
 
+def newclient():
+    # reads ANTHROPIC_API_KEY (and ANTHROPIC_BASE_URL if set) from the environment
+    return anthropic.Anthropic(timeout=90.0)
+
+
 def run(messages, client=None):
     # asks the model, runs the tools it asks for, and goes round again until it has an answer.
     # gives back the reply, the steps it took and how many tokens it used
     model = os.environ.get('ANTHROPIC_MODEL')
     if not model:
         raise AgentError(configured()[1], 503)
-    client = client or anthropic.Anthropic(timeout=90.0)
+    client = client or newclient()
 
     msgs = list(messages)
     steps = []
