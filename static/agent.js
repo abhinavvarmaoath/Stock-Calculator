@@ -45,6 +45,11 @@
 
   function bottom() { log.scrollTop = log.scrollHeight; }
 
+  // a long answer should be read from its first line, not its last
+  function showStart(m) {
+    log.scrollTop += m.getBoundingClientRect().top - log.getBoundingClientRect().top - 8;
+  }
+
   function bubble(who, text) {
     var m = el('div', 'msg ' + who);
     var body = el('div', 'body');
@@ -116,7 +121,7 @@
       history.push({role: 'assistant', content: res.data.reply});
       var m = bubble('bot', res.data.reply);
       details(m, res.data);
-      bottom();
+      showStart(m);
     }).catch(function (err) {
       wait.remove();
       history.pop();           // that question never got an answer, so take it back
