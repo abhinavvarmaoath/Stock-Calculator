@@ -1,4 +1,6 @@
 flask>=3.0
 numpy>=2.0
 yfinance>=1.0
+anthropic>=1.0
+python-dotenv>=1.0
 pytest>=8.0
