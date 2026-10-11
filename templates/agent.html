@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Assistant{% endblock %}
+{% block body %}
+<h1>Trade analyst</h1>
+<p class="lead">Ask about a trade in plain English. The assistant works it out with the calculator, the simulator and live prices, and shows every step it took. The numbers come from those tools, not from the model.</p>
+
+{% if not ok %}
+<div class="errs" role="alert"><ul><li>{{ why }}</li></ul></div>
+{% endif %}
+
+<section class="chat">
+  <div class="log" id="log" role="log" aria-live="polite" aria-label="Conversation">
+    <div class="hello" id="hello">
+      <p>Try one of these, or ask your own. Pick one to fill in the box, then change the numbers to yours.</p>
+      <div class="chips">
+        {% for e in examples %}
+        <button type="button" class="chip" data-q="{{ e }}">{{ e }}</button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <form class="askbar" id="ask">
+    <label class="sr" for="q">Your question</label>
+    <textarea id="q" rows="2" maxlength="2000" placeholder="For example: I own 100 shares of AAPL bought at $180. Sell now or hold for 3 months?"{% if not ok %} disabled{% endif %}></textarea>
+    <div class="row">
+      <button type="submit" id="send"{% if not ok %} disabled{% endif %}>Ask</button>
+      <button type="button" class="alt" id="clear">New chat</button>
+      <span class="note">Enter sends, Shift+Enter adds a line</span>
+    </div>
+  </form>
+</section>
+
+<p class="note">Not financial advice. A simulation shows what could happen if prices behave like a model, not what will happen. Every question uses your Anthropic API credits.</p>
+
+<script src="{{ url_for('static', filename='agent.js') }}"></script>
+{% endblock %}
