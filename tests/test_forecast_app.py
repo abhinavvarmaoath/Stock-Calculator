@@ -96,6 +96,20 @@ def test_the_chart_data_is_in_the_page(client, monkeypatch):
     assert d['horizon'] == '1 month'
 
 
+def test_the_page_shows_the_scoreboard_of_the_log_prices(client, monkeypatch):
+    # the numbers on the page are the ones forecast.scoreboard gives for these prices
+    import json
+    c = closes(1300, seed=9)
+    lookup(monkeypatch, c=c)
+    body = post(client).get_data(as_text=True)
+    shown = json.loads(re.search(r'id="boarddata">(.*?)</script>', body, re.S).group(1))
+    want = forecast.scoreboard(np.log(c), 21)
+    assert [(r['skill'], r['needs'], r['edge']) for r in shown['rows']] == \
+        [(r['skill'], r['needs'], r['edge']) for r in want['rows'] if r['name'] != 'naive']
+    assert shown['calibration'] == want['calibration']
+    assert want['headline'] in html.unescape(body)
+
+
 def test_pasted_prices_are_used_instead_of_a_lookup(client, monkeypatch):
     calls = lookup(monkeypatch, boom=AssertionError('should not look anything up'))
     pasted = '\n'.join('{:.2f}'.format(p) for p in closes())
