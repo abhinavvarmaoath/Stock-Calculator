@@ -1,11 +1,11 @@
 import json
 import logging
 import os
-import threading
 import time
 
 import anthropic
 
+import limiter
 import tools
 
 log = logging.getLogger(__name__)
@@ -82,23 +82,7 @@ def clean(data):
     return out
 
 
-hits = {}                   # address -> times of its recent questions
-lock = threading.Lock()
-
-
-def allowed(who, now=None):
-    # (ok, seconds to wait). at most perminute questions a minute from one address
-    now = time.time() if now is None else now
-    with lock:
-        recent = [t for t in hits.get(who, []) if now - t < 60]
-        if len(recent) >= perminute:
-            hits[who] = recent
-            return False, int(60 - (now - recent[0])) + 1
-        hits[who] = recent + [now]
-        if len(hits) > 1000:        # forget addresses that have gone quiet
-            for k in [k for k, v in hits.items() if now - v[-1] >= 60]:
-                del hits[k]
-        return True, 0
+questions = limiter.Limiter(perminute, 60)
 
 
 def short(e):

@@ -299,29 +299,6 @@ def test_clean_limits():
         agent.clean({'messages': big})
 
 
-# the rate limit
-
-@pytest.fixture(autouse=True)
-def fresh_limits():
-    agent.hits.clear()
-
-
-def test_rate_limit():
-    for i in range(agent.perminute):
-        assert agent.allowed('1.1.1.1', now=100 + i) == (True, 0)
-    ok, wait = agent.allowed('1.1.1.1', now=110)
-    assert ok is False and 40 < wait <= 61
-    assert agent.allowed('2.2.2.2', now=110) == (True, 0)         # someone else is fine
-    assert agent.allowed('1.1.1.1', now=100 + 61) == (True, 0)    # a minute later it is fine again
-
-
-def test_rate_limit_forgets_quiet_addresses():
-    for i in range(1200):
-        agent.allowed('10.0.%d.%d' % (i // 250, i % 250), now=0)
-    agent.allowed('9.9.9.9', now=500)
-    assert len(agent.hits) < 1200
-
-
 def test_the_prompt_knows_the_tools():
     for name in tools.functions:
         assert name in agent.system

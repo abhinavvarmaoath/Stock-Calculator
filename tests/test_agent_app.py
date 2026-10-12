@@ -18,7 +18,7 @@ def client():
 
 @pytest.fixture(autouse=True)
 def fresh_limits():
-    agent.hits.clear()
+    agent.questions.hits.clear()
 
 
 @pytest.fixture

@@ -182,7 +182,7 @@ def agentapi():
         return jsonify(error=why), 503
     if not request.is_json:         # json only, so another site can't make your browser send this
         return jsonify(error='Send JSON.'), 415
-    fine, wait = agent.allowed(request.remote_addr)
+    fine, wait = agent.questions.allowed(request.remote_addr)
     if not fine:
         r = jsonify(error='Slow down a little. Try again in {} seconds.'.format(wait))
         r.status_code = 429
