@@ -31,6 +31,9 @@ class TooShort(Exception):
     pass
 
 
+quiet = threading.Lock()        # catch_warnings changes the filters for the whole program, so one fit at a time uses it
+
+
 def minimum(h):
     # fewest closing prices that still gives 30 test forecasts
     return warm + h + 30 * max(h // 3, 1)
@@ -49,7 +52,7 @@ def drift(lp, h):
 
 def holt(lp, h):
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
-    with warnings.catch_warnings():
+    with quiet, warnings.catch_warnings():
         warnings.simplefilter('ignore')
         fit = ExponentialSmoothing(lp[-504:], trend='add', damped_trend=True,
                                    initialization_method='estimated').fit()
@@ -58,7 +61,7 @@ def holt(lp, h):
 
 def arima(lp, h):
     from statsmodels.tsa.arima.model import ARIMA
-    with warnings.catch_warnings():
+    with quiet, warnings.catch_warnings():
         warnings.simplefilter('ignore')
         fit = ARIMA(lp[-504:], order=(1, 1, 1), trend='t').fit()
         return float(fit.forecast(h)[-1])

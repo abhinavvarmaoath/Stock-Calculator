@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+import warnings
 
 import numpy as np
 import pytest
@@ -40,6 +41,60 @@ def test_trend_models_carry_a_steady_climb_forward(model):
     lp = 0.001 * np.arange(600.0) + np.cumsum(rng.normal(0, 0.0005, 600))
     got = getattr(fc, model)(lp, 10) - lp[-1]
     assert 0.004 < got < 0.016              # a straight line of 0.001 a day is 0.010 in 10 days
+
+
+def test_fits_that_complain_are_quiet():
+    # some windows make arima complain about its starting values. none of that should reach the log
+    from statsmodels.tsa.arima.model import ARIMA
+    lp = walk(5, 900)
+    noisy = []
+    for t in range(504, 800, 6):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always')
+            ARIMA(lp[:t + 1][-504:], order=(1, 1, 1), trend='t').fit()
+        if w:
+            noisy.append(t)
+            with warnings.catch_warnings(record=True) as again:
+                warnings.simplefilter('always')
+                fc.arima(lp[:t + 1], 21)
+            assert again == []
+        if len(noisy) == 2:
+            break
+    assert noisy                                                # there was something to be quiet about
+
+
+@pytest.mark.parametrize('model, where, cls', [('holt', 'statsmodels.tsa.holtwinters', 'ExponentialSmoothing'),
+                                              ('arima', 'statsmodels.tsa.arima.model', 'ARIMA')])
+def test_forecasts_running_together_leave_the_warning_filters_as_they_were(monkeypatch, model, where, cls):
+    # catch_warnings changes the filters for everyone, so fits that overlap can leave them changed for good.
+    # the real fits are swapped for slow ones, and the three start 30 ms apart, so each is certain to start
+    # inside the one before and to end in the same order: the worst case
+    import importlib
+
+    class Slow:
+        def __init__(self, *a, **k):
+            pass
+
+        def fit(self, *a, **k):
+            time.sleep(0.15)
+            return self
+
+        def forecast(self, h):
+            return np.zeros(h)
+    monkeypatch.setattr(importlib.import_module(where), cls, Slow)
+
+    lp = walk(2, 700)
+    before = list(warnings.filters)
+
+    def fit(i):
+        time.sleep(0.03 * i)
+        getattr(fc, model)(lp, 5)
+    threads = [threading.Thread(target=fit, args=(i,)) for i in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert list(warnings.filters) == before
 
 
 def test_features_only_use_the_past():
