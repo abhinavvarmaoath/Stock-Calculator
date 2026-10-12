@@ -86,6 +86,20 @@ def test_a_run_shows_the_scoreboard(client, monkeypatch):
     assert 'id="boarddata"' in r.get_data(as_text=True)
 
 
+def test_the_page_says_the_luck_test_cannot_allow_for_how_many_stocks_you_try(client, monkeypatch):
+    lookup(monkeypatch)
+    t = text(post(client))
+    assert 'allows for the {} methods tried here'.format(len(forecast.names) - 1) in t       # the benchmark is not one of them
+    assert 'look at 20 and about one will show a winner by luck alone' in t
+
+
+def test_a_flat_price_gets_a_plain_answer(client, monkeypatch):
+    lookup(monkeypatch)
+    r = post(client, stksymbol='', closes='\n'.join(['100'] * 800))
+    assert r.status_code == 200
+    assert 'nothing to forecast' in text(r) and 'luck zone' not in r.get_data(as_text=True)
+
+
 def test_the_chart_data_is_in_the_page(client, monkeypatch):
     import json
     lookup(monkeypatch)

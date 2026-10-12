@@ -91,6 +91,7 @@
 <ul class="assume">
   <li>Every forecast only used prices up to the day it was made. Nothing from after that day leaks in, and the methods that learn from the past only learn from outcomes that were already known by then.</li>
   <li>The {{ res.forecasts }} forecasts are {{ res.every }} trading days apart. Forecasts closer than {{ res.h }} days share some of the same prices, so the luck test counts them as fewer than {{ res.forecasts }} separate tests.</li>
+  <li>The luck test allows for the {{ res.rows|length - 1 }} methods tried here. It cannot allow for how many stocks and horizons you try: look at 20 and about one will show a winner by luck alone.</li>
   <li>Beating "price stays put" is hard. Prices already reflect what is known, so most methods land within luck of it. That is the usual result, not a fault in the test.</li>
   <li>A method that wins on one stock or one stretch of years may not win on another, or tomorrow. This looks backwards. It is not a prediction and not financial advice.</li>
 </ul>

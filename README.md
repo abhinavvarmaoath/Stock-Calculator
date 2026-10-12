@@ -69,7 +69,9 @@ How it is kept honest:
 - a forecast only ever sees prices up to the day it is made, and the methods that learn only learn from outcomes that were already known by then. A test hands every method a changed future and checks that nothing it says moves
 - the luck test is a Diebold-Mariano test. Forecasts made closer together than the horizon share prices, so it counts them as fewer than they are, and the p values are adjusted for having tried several methods (Holm). In simulations with nothing but luck it flagged a difference 5 to 8% of the time, where 5% is the aim
 - "can't tell" is not "no skill": the page says how big a gap had to be before it could have shown up, and for noisy methods at 3 months that can be more than any method could deliver
+- the settings of every method were fixed in advance on made-up prices, never tuned on a stock's own history
 - a forecast that fails is counted and shown, never dropped quietly or scored as a hit
+- the luck test allows for the methods tried on one stock, not for how many stocks you look at: try 20 and about one will show a winner by luck alone
 - it only looks backwards. There is no forecast price anywhere on the page, and a method that won on the past may not win tomorrow
 
 Limits: a 1 week test needs 539 daily closes (about 2 years), a 1 month test 735 and a 3 month test 1,197, so a recent listing can only use the shorter ones. It takes 10 to 30 seconds. At most 2 run at once and one address gets 6 new ones every 10 minutes. The last 64 answers are remembered, so asking again for the same prices costs nothing. If the price lookup fails, or for something Yahoo does not have, paste your own closing prices under Advanced (oldest first, one on each line, up to 4,000).
@@ -106,7 +108,7 @@ Then put your key in `ANTHROPIC_API_KEY` and a model name from Anthropic's model
 
 It uses your API credits: each question is a few model calls. Answers are not financial advice.
 
-If you put the app on the internet: the assistant spends your credits for anyone who can reach it. It only limits each address to 10 questions a minute, and behind a proxy every visitor can look like the same address. Put a login in front of it first.
+If you put the app on the internet: the assistant spends your credits for anyone who can reach it, and a new forecast scoreboard keeps a processor busy for 10 seconds or more. They only limit each address (10 questions a minute, 6 new forecasts every 10 minutes), and behind a proxy every visitor can look like the same address. Put a login in front of it first.
 
 ## Run it
 
