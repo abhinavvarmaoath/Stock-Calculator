@@ -1,6 +1,6 @@
 # Stock Calculator
 
-A small Flask web app for stock trades. The calculator works out the real profit (or loss) on a trade after commissions and capital gains tax. The simulator runs thousands of random price paths to show the range of things that could happen if you hold a position for a while. The assistant is an AI agent you can ask about a trade in plain English.
+A small Flask web app for stock trades. The calculator works out the real profit (or loss) on a trade after commissions and capital gains tax. The simulator runs thousands of random price paths to show the range of things that could happen if you hold a position for a while. The forecast scoreboard tests forecasting methods on a stock's past prices and shows whether any of them beat "the price stays put" by more than luck. The assistant is an AI agent you can ask about a trade in plain English.
 
 **Author:** Abhinav Varma ([@abhinavvarmaoath](https://github.com/abhinavvarmaoath))
 
@@ -46,6 +46,34 @@ What it assumes:
 - commissions as entered, tax only on a gain
 - it shows what could happen if prices behave like the model. It is not a prediction and not financial advice, and the numbers move a little each run because the runs are random
 
+## Forecast scoreboard
+
+Can anything beat "the price stays where it is"? Pick a stock and how far ahead to look (1 week, 1 month or 3 months) and the app tries six forecasting methods on its last 10 years of daily closes:
+
+- the benchmark: today's price is the forecast
+- drift: keeps growing at the average pace of the last year
+- damped trend (Holt exponential smoothing)
+- ARIMA(1,1,1)
+- a ridge regression on recent returns, recent volatility and how far the price is from its 200 day average
+- gradient boosting on the same inputs
+
+Each method forecasts the price from about 70 past days and is marked against what really happened. You get:
+
+- a verdict in plain words: did any method beat "price stays put" by more than luck can explain
+- a score table: the average miss, how much better than the benchmark, how often it was nearer, how often it called up or down right, and a luck test
+- a chart of those gaps, with the gap luck alone could have produced shaded in grey
+- a check of the simulator's price range: how often the real price landed inside the 80% and 90% range the simulator would have drawn on those days
+
+How it is kept honest:
+
+- a forecast only ever sees prices up to the day it is made, and the methods that learn only learn from outcomes that were already known by then. A test hands every method a changed future and checks that nothing it says moves
+- the luck test is a Diebold-Mariano test. Forecasts made closer together than the horizon share prices, so it counts them as fewer than they are, and the p values are adjusted for having tried several methods (Holm). In simulations with nothing but luck it flagged a difference 5 to 8% of the time, where 5% is the aim
+- "can't tell" is not "no skill": the page says how big a gap had to be before it could have shown up, and for noisy methods at 3 months that can be more than any method could deliver
+- a forecast that fails is counted and shown, never dropped quietly or scored as a hit
+- it only looks backwards. There is no forecast price anywhere on the page, and a method that won on the past may not win tomorrow
+
+Limits: a 1 week test needs 539 daily closes (about 2 years), a 1 month test 735 and a 3 month test 1,197, so a recent listing can only use the shorter ones. It takes 10 to 30 seconds. At most 2 run at once and one address gets 6 new ones every 10 minutes. The last 64 answers are remembered, so asking again for the same prices costs nothing. If the price lookup fails, or for something Yahoo does not have, paste your own closing prices under Advanced (oldest first, one on each line, up to 4,000).
+
 ## Assistant
 
 Ask about a trade in plain English, like "I bought 100 shares of AAPL at $180 and paid $5 commission each way. With 15% tax, should I sell now or hold for 3 months?"
@@ -55,6 +83,7 @@ It is an AI agent that uses Claude through the Anthropic API. It decides which t
 - `get_stock_info` - latest close and yearly volatility for a ticker
 - `calculate_trade` - the calculator
 - `simulate_holding` - the simulator
+- `forecast_scoreboard` - the forecast scoreboard, for when you ask whether a stock's price can be predicted or how far to trust the simulator's range
 
 Every step is shown under the answer (the tool, what it was given and what it gave back), along with how many model calls and tokens it used.
 
@@ -63,6 +92,7 @@ How it is kept honest:
 - the numbers in an answer have to come from a tool result or from what you wrote. The model is told never to do the maths or quote a price from memory
 - every number the model sends to a tool is checked first (the same limits as the forms) and a bad one goes back as an error for the model to fix
 - if a price lookup fails it says so and asks you for the numbers instead of guessing
+- the scoreboard tool gives back how methods did on past prices and no forecast price, and the assistant is told never to predict a price itself
 - a limit on model calls, on tool calls in one go and on the size of the chat stops one question running away
 - nothing the model writes is ever treated as HTML
 
@@ -87,7 +117,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Then open http://localhost:8080 (set `FLASK_DEBUG=1` first if you want auto reload). The calculator and simulator work without any key, only the assistant needs one.
+Then open http://localhost:8080 (set `FLASK_DEBUG=1` first if you want auto reload). The calculator, simulator and forecast scoreboard work without any key, only the assistant needs one.
 
 ## Tests
 
@@ -95,7 +125,7 @@ Then open http://localhost:8080 (set `FLASK_DEBUG=1` first if you want auto relo
 pytest
 ```
 
-None of the tests use the internet or an API key. The assistant is tested against a small fake of the Anthropic API that rejects the same bad requests the real one does.
+The tests take about a minute, because they fit real forecasting models. None of them use the internet or an API key. The assistant is tested against a small fake of the Anthropic API that rejects the same bad requests the real one does.
 
 To check the assistant against the real model, add your key and model to `.env` and run `pytest -m live`. It costs a few cents.
 
@@ -104,7 +134,10 @@ To check the assistant against the real model, add your key and model to `.env` 
 - `app.py` - routes and input checks
 - `calc.py` - the trade maths
 - `sim.py` - the Monte Carlo simulation
+- `forecast.py` - the forecasting methods and the walk-forward test that scores them
+- `verdict.py` - the luck test, the adjustment for trying several methods and the simulator range check
 - `prices.py` - price history lookup
+- `limiter.py` - the per-address rate limit shared by the assistant and the scoreboard
 - `agent.py` - the assistant: prompt, the tool loop, limits
 - `tools.py` - the tools the assistant can use
 - `templates/` - the pages
@@ -114,5 +147,4 @@ To check the assistant against the real model, add your key and model to `.env` 
 
 ## Roadmap
 
-- price forecasts with a backtest scoreboard
 - watchlist alerts when a price crosses your break-even
