@@ -34,6 +34,7 @@ header {
 .brand { font-weight: 700; color: var(--fg); text-decoration: none; }
 nav a { color: var(--muted); text-decoration: none; margin-right: 18px; }
 nav a:hover { color: var(--accent); }
+@media (max-width: 480px) { nav a { margin-right: 10px; } }
 
 main { max-width: 800px; margin: 0 auto; padding: 24px 16px 56px; }
 h1 { font-size: 1.6rem; margin: 0 0 4px; }
@@ -216,3 +217,52 @@ button.alt { color: var(--accent); background: transparent; }
 .askbar { padding: 12px 16px 14px; background: var(--card); border: 0; border-top: 1px solid var(--line); border-radius: 0; }
 .askbar .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 10px; }
 .askbar .row button { margin: 0; }
+
+/* forecast */
+.verdict { margin-top: 16px; padding: 14px 18px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--axis); border-radius: 10px; }
+.verdict.good { border-left-color: var(--good); }
+.verdict .headline { margin: 0; font-size: 1.1rem; font-weight: 600; }
+.verdict .note { margin: 6px 0 0; }
+
+.board th, .board td { padding: 9px 12px; }
+.board thead th { text-align: right; font-size: .8rem; line-height: 1.25; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); vertical-align: bottom; }
+.board thead th:first-child { text-align: left; }
+.board tbody th { text-align: left; font-weight: 600; border-bottom: 1px solid var(--line); }
+.board tbody th small { display: block; font-weight: 400; color: var(--bad); font-size: .78rem; }
+.board tbody tr:last-child th, .board tbody tr:last-child td { border-bottom: 0; }
+.board td:last-child { text-align: right; }
+
+.badge { display: inline-block; padding: 1px 9px; font-size: .8rem; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; }
+.badge.good { color: var(--good); border-color: currentColor; }
+.badge.bad { color: var(--bad); border-color: currentColor; }
+
+.board + .assume { margin-top: 12px; }
+
+@media (max-width: 700px) {
+  .board, .board tbody, .board tr, .board tbody th, .board td { display: block; }
+  .board thead { display: none; }
+  .board tr { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .board tr:last-child { border-bottom: 0; }
+  .board tbody th, .board td { padding: 2px 0; border: 0; }
+  .board td { display: flex; justify-content: space-between; gap: 12px; text-align: right; }
+  .board td::before { content: attr(data-label); color: var(--muted); text-align: left; }
+}
+
+.key.box.better { background: var(--series-1); }
+.key.box.worse { background: var(--loss); }
+.key.box.tied { background: var(--muted); opacity: .55; }
+.key.box.luck { background: rgba(102, 112, 133, .18); box-shadow: inset 0 0 0 1px rgba(102, 112, 133, .35); }
+.key.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--series-1); }
+.key.line.claim { background: var(--fg); }
+
+.plot .rowlabel { fill: var(--fg); font-size: 13px; font-weight: 600; }
+.plot .luckband { fill: var(--muted); fill-opacity: .16; }
+.plot .zone { fill: var(--muted); font-size: 11.5px; }
+.plot .vals { fill: var(--fg); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
+.plot .fbar.better { fill: var(--series-1); }
+.plot .fbar.worse { fill: var(--loss); }
+.plot .fbar.tied { fill: var(--muted); fill-opacity: .55; }
+.plot .claim { stroke: var(--fg); stroke-width: 2; }
+.plot .track { stroke: var(--axis); stroke-width: 1; }
+.plot .obs { fill: var(--series-1); stroke: var(--card); stroke-width: 2; }
+.plot .obs.off { fill: var(--series-2); }

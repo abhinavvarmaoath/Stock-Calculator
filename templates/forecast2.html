@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ label }} forecast scoreboard{% endblock %}
+{% block body %}
+{% macro num(v, fmt) %}{% if v is none %}&mdash;{% else %}{{ fmt.format(v) }}{% endif %}{% endmacro %}
+<h1>Forecast scoreboard <span class="sym">{{ label }}</span></h1>
+<p class="lead">Six ways to forecast the price {{ res.horizon }} ahead, each tried on {{ res.forecasts }} past days and marked against what really happened. {{ '{:,}'.format(res.prices) }} daily closes.</p>
+
+<div class="verdict{{ ' good' if win else '' }}">
+  <p class="headline">{{ res.headline }}</p>
+  {% if res.detail %}<p class="note">{{ res.detail }}</p>{% endif %}
+</div>
+
+<figure class="chart" id="skill">
+  <h2>Beating "price stays put"</h2>
+  <p class="note">Each bar is how much smaller a method's average miss was than the benchmark's (to the right), or how much bigger (to the left). The grey zone is what a method had to get out of to count as more than luck.</p>
+  <div class="legend">
+    <span><i class="key box better"></i>Beat the benchmark</span>
+    <span><i class="key box worse"></i>Worse</span>
+    <span><i class="key box tied"></i>Can't tell from luck</span>
+    <span><i class="key box luck"></i>Could be luck</span>
+  </div>
+  <div class="plot" role="img" aria-label="Bar chart of how much better or worse each method's average miss was than the price-stays-put forecast. The table below has the same numbers."></div>
+</figure>
+
+<h2>The scores</h2>
+<table class="tbl board">
+  <thead>
+    <tr><th>Method</th><th>Average miss</th><th>Better than benchmark by</th><th>Nearer than benchmark</th><th>Right direction</th><th>Luck test (p)</th><th>Result</th></tr>
+  </thead>
+  <tbody>
+    {% for r in res.rows %}
+    <tr>
+      <th scope="row">{{ r.label }}{% if r.failed %}<small>{{ r.failed }} of {{ res.forecasts }} forecasts failed</small>{% endif %}</th>
+      <td data-label="Average miss">{{ num(r.miss, '{:.1f}%') }}</td>
+      <td data-label="Better than benchmark by">{% if r.name == 'naive' %}&mdash;{% else %}{{ num(r.skill, '{:+.1f}%') }}{% endif %}</td>
+      <td data-label="Nearer than benchmark (share of forecasts)">{{ num(r.closer, '{:.0f}%') }}</td>
+      <td data-label="Right direction (share of forecasts)">{{ num(r.direction, '{:.0f}%') }}</td>
+      <td data-label="Luck test (p)">{% if r.padj is none %}&mdash;{% else %}{{ r.padj|luck }}{% endif %}</td>
+      <td data-label="Result">
+        {%- if r.name == 'naive' %}Benchmark
+        {%- elif r.edge == 'better' %}<span class="badge good">&#10003; Beat it</span>
+        {%- elif r.edge == 'worse' %}<span class="badge bad">&#10007; Worse</span>
+        {%- elif r.edge == 'tied' %}<span class="badge">&asymp; Can't tell</span>
+        {%- else %}<span class="badge">Too few forecasts</span>{% endif -%}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<ul class="assume">
+  <li><strong>Average miss</strong> is how far off the forecast was, as a percent of the price, averaged over all the forecasts.</li>
+  <li><strong>Better than benchmark by</strong> is how much smaller that average miss was than the benchmark's. A minus means it was bigger.</li>
+  <li><strong>Nearer than benchmark</strong> and <strong>right direction</strong> are shares of the {{ res.forecasts }} forecasts: how often the method was nearer to the real price, and how often it called up or down correctly.</li>
+  <li><strong>Luck test</strong> is the chance of a gap this big if the method were really no better than the benchmark, after allowing for trying {{ res.rows|length - 1 }} methods. Under 0.05 counts as real.</li>
+</ul>
+
+<figure class="chart" id="range">
+  <h2>Has the simulator's range held up for {{ label }}?</h2>
+  <p class="note">The simulator draws a range for where the price could be after {{ res.horizon }} (normal random moves, 0% expected return, volatility from the last 2 years). This checks how often the real price landed inside that range on the same {{ res.forecasts }} past days.</p>
+  <div class="legend">
+    <span><i class="key dot"></i>How often it held</span>
+    <span><i class="key line claim"></i>How often it should</span>
+    <span><i class="key box luck"></i>What luck allows if the range were right</span>
+  </div>
+  <div class="plot" role="img" aria-label="Chart of how often the real price landed inside the simulator's range, against how often it should. The text below has the same numbers."></div>
+  <ul class="assume">
+    {% for c in res.calibration %}
+    <li><strong>{{ c.level }}% range:</strong> held {{ '{:.0f}'.format(c.covered) }}% of the time.
+      {% if c.verdict == 'ok' %}No sign it is off, since a gap this size is easy to get by luck.
+      {% elif c.verdict == 'narrow' %}Too narrow: the real price strayed outside it more often than the range says.
+      {% else %}Too wide: the real price stayed inside it more often than the range says.{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% if res.calibration|selectattr('verdict', 'equalto', 'narrow')|list %}
+  <p class="note">So for {{ label }} the simulator probably understates how far the price can move over {{ res.horizon }}.</p>
+  {% elif res.calibration|selectattr('verdict', 'equalto', 'wide')|list %}
+  <p class="note">So for {{ label }} the simulator probably overstates how far the price can move over {{ res.horizon }}.</p>
+  {% endif %}
+  <details>
+    <summary>Table view</summary>
+    <table class="tbl">
+      <tr><th>Range</th><th>Held</th><th>Luck allows</th><th>Separate forecasts</th></tr>
+      {% for c in res.calibration %}
+      <tr><td>{{ c.level }}%</td><td>{{ '{:.0f}'.format(c.covered) }}%</td><td>{{ '{:.0f}'.format(c.lo) }}% to {{ '{:.0f}'.format(c.hi) }}%</td><td>{{ c.indep }}</td></tr>
+      {% endfor %}
+    </table>
+  </details>
+</figure>
+
+<h2>How to read this</h2>
+<ul class="assume">
+  <li>Every forecast only used prices up to the day it was made. Nothing from after that day leaks in, and the methods that learn from the past only learn from outcomes that were already known by then.</li>
+  <li>The {{ res.forecasts }} forecasts are {{ res.every }} trading days apart. Forecasts closer than {{ res.h }} days share some of the same prices, so the luck test counts them as fewer than {{ res.forecasts }} separate tests.</li>
+  <li>Beating "price stays put" is hard. Prices already reflect what is known, so most methods land within luck of it. That is the usual result, not a fault in the test.</li>
+  <li>A method that wins on one stock or one stretch of years may not win on another, or tomorrow. This looks backwards. It is not a prediction and not financial advice.</li>
+</ul>
+
+<details>
+  <summary>What the six methods are</summary>
+  <ul class="assume">
+    <li><strong>Price stays put:</strong> today's price is the forecast. The benchmark everything is marked against.</li>
+    <li><strong>Drift:</strong> keeps growing at the average pace of the last year.</li>
+    <li><strong>Damped trend (Holt):</strong> exponential smoothing with a trend that fades out, fitted on the last 2 years.</li>
+    <li><strong>ARIMA(1,1,1):</strong> a classic time series model with a steady drift, fitted on the last 2 years.</li>
+    <li><strong>Momentum regression:</strong> a ridge regression on recent returns, recent volatility and how far the price is from its 200 day average.</li>
+    <li><strong>Gradient boosting:</strong> a small set of decision trees on the same inputs.</li>
+  </ul>
+</details>
+
+<a class="btn" href="{{ url_for('scoreboard', **args) }}">Change inputs</a>
+{% if label != 'your prices' %}<a class="btn alt" href="{{ url_for('simulate', stksymbol=label) }}">Open the simulator</a>{% endif %}
+
+<script type="application/json" id="boarddata">{{ chartdata|tojson }}</script>
+<script src="{{ url_for('static', filename='forecast.js') }}"></script>
+{% endblock %}

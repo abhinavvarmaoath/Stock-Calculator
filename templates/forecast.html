@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "macros.html" import choice, errors %}
+{% block title %}Forecast scoreboard{% endblock %}
+{% block body %}
+<h1>Forecast scoreboard</h1>
+<p class="lead">Can anything beat "the price stays where it is"? This tries six ways of forecasting on a stock's own past prices and shows which, if any, did better than luck.</p>
+
+{{ errors(errs) }}
+
+<form method="post" action="{{ url_for('scoreboard') }}" id="runform">
+  <div class="grid">
+    <div class="field">
+      <label for="stksymbol">Stock symbol</label>
+      <input type="text" name="stksymbol" id="stksymbol" value="{{ form.get('stksymbol', '') }}" placeholder="AAPL" maxlength="10">
+      <small>Uses the last 10 years of daily closes</small>
+    </div>
+    {{ choice(form, 'h', 'Forecast how far ahead', horizons.items()|list, '21', 'Longer ones need more history to test') }}
+  </div>
+
+  <details{% if openadv or form.get('closes') %} open{% endif %}>
+    <summary>Advanced</summary>
+    <div class="field">
+      <label for="closes">Paste your own closing prices</label>
+      <textarea name="closes" id="closes" rows="6" spellcheck="false" placeholder="182.63&#10;185.64&#10;184.25">{{ form.get('closes', '') }}</textarea>
+      <small>One price on each line, oldest first. Use this if the lookup fails or for something Yahoo doesn't have. When you paste prices the symbol is optional.</small>
+    </div>
+  </details>
+
+  <button type="submit" id="go">Run the test</button>
+  <p class="note" id="running" role="status" hidden>Testing six methods on years of prices. This can take 10 to 30 seconds.</p>
+</form>
+
+<h2>What you get</h2>
+<ul class="assume">
+  <li>A score for each method against the "price stays put" forecast, with a luck test so a lucky streak is not mistaken for skill</li>
+  <li>A check of whether the simulator's price range for this stock has held up in the past</li>
+</ul>
+<p class="note">Looking backwards only. This is not a prediction and not financial advice.</p>
+<script src="{{ url_for('static', filename='forecast.js') }}"></script>
+{% endblock %}
