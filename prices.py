@@ -2,7 +2,7 @@ import time
 
 import numpy as np
 
-cache = {}          # symbol -> (time fetched, closes)
+cache = {}          # (symbol, years) -> (time fetched, closes)
 ttl = 15 * 60       # keep prices for 15 minutes so we don't keep hitting yahoo
 
 tryagain = ' Try again, or enter the current price and volatility under Advanced.'
@@ -17,7 +17,7 @@ class PriceError(Exception):
 
 def history(sym, years=2):
     # daily closes (adjusted for splits and dividends) as a numpy array
-    hit = cache.get(sym)
+    hit = cache.get((sym, years))
     if hit and time.time() - hit[0] < ttl:
         return hit[1]
 
@@ -40,7 +40,7 @@ def history(sym, years=2):
     if len(closes) < 60:
         raise PriceError('Not enough price history for {} to work out volatility.'.format(sym))
 
-    cache[sym] = (time.time(), closes)
+    cache[(sym, years)] = (time.time(), closes)
     return closes
 
 
