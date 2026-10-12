@@ -40,8 +40,11 @@ def test_a_model_that_is_naive_is_exactly_tied():
     assert r['p'] == 1.0 and r['mean'] == 0.0
 
 
-def test_the_same_gap_every_time_cannot_be_given_a_p_value():
-    assert vd.dm(np.full(30, 0.01), np.arange(30) * 10, 5) is None
+def test_the_same_gap_every_single_time_is_certain():
+    o = np.arange(30) * 10
+    better, worse = vd.dm(np.full(30, 0.01), o, 5), vd.dm(np.full(30, -0.01), o, 5)
+    assert better['p'] == 0.0 and better['mean'] > 0
+    assert worse['p'] == 0.0 and worse['mean'] < 0
 
 
 def test_more_evidence_gives_a_smaller_p():
@@ -203,6 +206,26 @@ def test_a_model_is_only_better_if_it_survives_trying_several(monkeypatch):
     assert [rows[k]['p'] for k in 'abc'] == [0.02, 0.03, 0.9]
     assert rows['a']['padj'] == pytest.approx(0.06) and rows['b']['padj'] == pytest.approx(0.06)
     assert [rows[k]['edge'] for k in 'abc'] == ['tied', 'tied', 'tied']
+
+
+def test_a_method_that_is_right_every_time_beats_the_benchmark():
+    # the price moves by exactly .05 each time. naive misses by .05 every time and this method never misses
+    n = 40
+    e = 0.05 * np.where(np.arange(n) % 2 == 0, 1, -1)
+    bt = dict(h=5, step=10, origins=np.arange(n) * 10 + 500, last=np.zeros(n), actual=e,
+              preds=dict(naive=np.zeros(n), perfect=e), failed=dict(naive=0, perfect=0))
+    rows, out = judged(bt)
+    assert rows['perfect']['edge'] == 'better' and rows['perfect']['padj'] == 0.0
+    assert out['headline'].startswith('perfect cut the average miss by 100%')
+
+
+def test_a_price_that_never_moved_says_there_is_nothing_to_forecast():
+    n = 40
+    bt = dict(h=5, step=10, origins=np.arange(n) * 10 + 500, last=np.zeros(n), actual=np.zeros(n),
+              preds=dict(naive=np.zeros(n), a=np.zeros(n)), failed=dict(naive=0, a=0))
+    rows, out = judged(bt)
+    assert out['headline'] == 'The price never moved on any of the forecast days, so there is nothing to forecast.'
+    assert rows['a']['edge'] == 'untested' and rows['a']['skill'] is None
 
 
 def test_a_scoreboard_where_nothing_can_be_tested_says_so():

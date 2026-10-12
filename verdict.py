@@ -25,9 +25,9 @@ def dm(d, o, h):
     w = np.clip(1 - np.abs(o[:, None] - o[None, :]) / (2 * h), 0, None)
     var = float(z @ w @ z) / n ** 2
     if var < 1e-24:
-        # every forecast the same distance from naive's. nothing to measure, unless it is not
-        # the same distance as naive's at all
-        return dict(mean=mean, se=0.0, t=0.0, p=1.0, dof=n - 1) if abs(mean) < 1e-12 else None
+        # every forecast was the same distance from naive's: exactly as good as naive every time (p of 1),
+        # or better or worse by the same amount every single time (p of 0)
+        return dict(mean=mean, se=0.0, t=0.0, p=1.0 if abs(mean) < 1e-12 else 0.0, dof=float(n - 1))
     se = var ** 0.5
     dof = max(n * n / float(w.sum()) - 1, 2)        # forecasts that overlap count for less than one each
     t = mean / se
@@ -65,6 +65,9 @@ def judge(bt, rows):
         t = dm(base[ok] - np.abs(p[ok] - actual[ok]), o[ok], h)
         if t and base[ok].mean() > 0:
             tests[r['name']], basemean[r['name']] = t, base[ok].mean()
+
+    if not tests and not (base > 0).any():
+        return dict(headline='The price never moved on any of the forecast days, so there is nothing to forecast.', detail='')
 
     adj = holm({k: t['p'] for k, t in tests.items()})
     for r in rows:
