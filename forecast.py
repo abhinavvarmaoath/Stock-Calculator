@@ -2,6 +2,8 @@ import warnings
 
 import numpy as np
 
+import verdict
+
 # Walk-forward test of price forecasts. Everything works on log prices, so an error of 0.05
 # is about 5% of the price. A model is only ever handed the prices up to the day it
 # forecasts from, never anything after it.
@@ -171,3 +173,14 @@ def score(bt):
                 row['direction'] = float(100 * (up[has] == moved[has]).mean())
         rows.append(row)
     return rows
+
+
+def scoreboard(lp, h, which=None):
+    # everything the page and the assistant show for one horizon. plain numbers and text only
+    lp = np.asarray(lp, dtype=float)
+    bt = backtest(lp, h, which)
+    rows = score(bt)
+    said = verdict.judge(bt, rows)
+    return dict(h=h, horizon=horizons.get(h, '{} days'.format(h)), prices=int(len(lp)),
+                forecasts=int(len(bt['origins'])), every=bt['step'], rows=rows,
+                calibration=verdict.calibrate(lp, bt), **said)

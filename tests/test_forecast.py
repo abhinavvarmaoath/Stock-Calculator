@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -273,3 +275,21 @@ def test_a_model_exactly_as_close_as_naive_is_not_closer():
 def test_a_flat_price_has_no_skill_score():
     r = row(fc.score(result(dict(a=[0.01, 0.01]), [0.0, 0.0])), 'a')
     assert r['skill'] is None and r['miss'] == pytest.approx(1.0)
+
+
+# the scoreboard
+
+def test_the_scoreboard_is_plain_data_the_page_can_use():
+    lp = walk(1, 800)
+    out = fc.scoreboard(lp, 21, ['drift', 'ridge'])
+    json.dumps(out)                                     # fails on a numpy number
+    assert out['h'] == 21 and out['horizon'] == '1 month' and out['prices'] == 800
+    assert [r['name'] for r in out['rows']] == ['naive', 'drift', 'ridge']
+    assert out['forecasts'] == out['rows'][0]['n'] and out['every'] >= 7
+    assert [c['level'] for c in out['calibration']] == [80, 90]
+    assert out['headline'] and out['rows'][1]['edge'] in ('better', 'worse', 'tied')
+
+
+def test_the_scoreboard_takes_a_plain_list_of_prices():
+    lp = walk(1, 800)
+    assert fc.scoreboard(list(lp), 5, ['drift']) == fc.scoreboard(lp, 5, ['drift'])
