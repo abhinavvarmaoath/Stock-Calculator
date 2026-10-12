@@ -77,6 +77,7 @@
 <p class="note">A simulation shows what could happen if prices behave like the model. Real prices jump around more than a model expects, so this is not a prediction and not financial advice. The numbers move a little each time you run it because the runs are random.</p>
 
 <a class="btn" href="{{ url_for('simulate', **args) }}">Change inputs</a>
+<a class="btn alt" href="{{ url_for('scoreboard', **fcargs) }}">Has this range held up?</a>
 <a class="btn alt" href="{{ url_for('index') }}">Back to calculator</a>
 
 <script type="application/json" id="simdata">{{ chartdata|tojson }}</script>

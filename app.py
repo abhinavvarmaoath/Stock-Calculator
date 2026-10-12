@@ -197,9 +197,12 @@ def simulate():
     args = {k: '{:.10g}'.format(v) for k, v in vals.items() if v is not None}
     args.update(stksymbol=stksymbol, ndays=ndays, method=method)
 
+    # the forecast page to check this range with. it has no 6 month or 1 year, so those get 3 months
+    fcargs = dict(stksymbol=stksymbol, h=ndays if ndays in forecast.horizons else 63)
+
     return render_template('sim2.html', res=res, stksymbol=stksymbol, horizon=horizons[ndays],
                            method=method, src=src, fanrows=fanrows, binrows=binrows,
-                           chartdata=chartdata, args=args)
+                           chartdata=chartdata, args=args, fcargs=fcargs)
 
 
 def scoreerror(errs, code=400, openadv=False):
