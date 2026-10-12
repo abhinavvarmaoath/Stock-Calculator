@@ -4,6 +4,9 @@ import math
 import re
 import zlib
 
+import numpy as np
+
+import forecast
 import prices
 import sim
 from calc import calc
@@ -161,8 +164,62 @@ def simulate_holding(args):
     return out
 
 
+def r1(x):
+    return None if x is None else round(float(x), 1)
+
+
+def forecast_scoreboard(args):
+    sym = symbol(args)
+    raw = args.get('horizon_days')
+    raw = 21 if raw is None or raw == '' else raw
+    try:
+        h = None if isinstance(raw, bool) or float(raw) != int(float(raw)) else int(float(raw))
+    except (TypeError, ValueError, OverflowError):
+        h = None
+    if h not in forecast.horizons:
+        opts = ['{} ({})'.format(d, name) for d, name in forecast.horizons.items()]
+        raise ToolError('horizon_days must be ' + ', '.join(opts[:-1]) + ' or ' + opts[-1])
+
+    try:
+        closes = prices.history(sym, forecast.years)
+    except prices.PriceError as e:
+        raise ToolError(e.what + " The scoreboard needs the stock's own price history, so tell the user it is not available right now.")
+    lp = np.log(closes)
+    if len(lp) < forecast.minimum(h):
+        raise ToolError('{} has only {:,} daily prices and a {} test needs at least {:,}. Try a shorter horizon_days.'.format(
+            sym, len(lp), forecast.horizons[h], forecast.minimum(h)))
+    try:
+        res = forecast.board(lp, h)
+    except forecast.Busy as e:
+        raise ToolError(str(e))
+
+    result = dict(better='beat the benchmark', worse='worse than the benchmark',
+                  tied="can't be told apart from luck", untested='too few forecasts to test')
+    methods = [dict(method=r['label'], average_miss_percent=r1(r['miss']),
+                    better_than_benchmark_by_percent=r1(r['skill']),
+                    nearer_than_benchmark_percent=r1(r['closer']),
+                    right_direction_percent=r1(r['direction']),
+                    luck_test_p_value=None if r['padj'] is None else round(r['padj'], 3),
+                    result=result[r['edge']])
+               for r in res['rows'] if r['name'] != 'naive']
+    rangecheck = {'ok': 'no sign it is off', 'narrow': 'too narrow', 'wide': 'too wide'}
+    return dict(
+        symbol=sym, horizon=res['horizon'], daily_prices_used=res['prices'],
+        forecasts_tested=res['forecasts'], days_between_forecasts=res['every'],
+        benchmark='the price stays where it is today',
+        benchmark_average_miss_percent=r1(res['rows'][0]['miss']),
+        summary=res['headline'], sample_size_note=res['detail'], methods=methods,
+        simulator_range_check=[dict(range_percent=c['level'], held_percent=round(c['covered']),
+                                    result=rangecheck[c['verdict']], separate_forecasts=c['indep'])
+                               for c in res['calibration']],
+        notes="Looks backwards only: how each method would have done on this stock's past prices, using only what was "
+              'known on the day. It is not a prediction and has no forecast price in it. The luck test already allows '
+              'for trying several methods. Better than the benchmark means a smaller average miss, and a minus means a '
+              'bigger one. Forecasts closer together than the horizon overlap, so there are fewer separate tests than forecasts.')
+
+
 functions = dict(get_stock_info=get_stock_info, calculate_trade=calculate_trade,
-                 simulate_holding=simulate_holding)
+                 simulate_holding=simulate_holding, forecast_scoreboard=forecast_scoreboard)
 
 
 def run(name, args):
@@ -250,6 +307,26 @@ tooldefs = [
                 'model': {'type': 'string', 'enum': ['normal', 'resample'], 'description': "'normal' uses random moves from a bell curve (default). 'resample' reuses the stock's own past daily moves, which keeps its big up and down days, and needs the symbol"},
             },
             'required': ['shares', 'buy_price', 'days'],
+            'additionalProperties': False,
+        },
+    },    {
+        'name': 'forecast_scoreboard',
+        'description': (
+            "Test how well forecasting methods would have predicted a stock's price, using its own last 10 years "
+            'of daily prices. Six methods (including ARIMA and gradient boosting) each forecast the price 1 week, '
+            '1 month or 3 months ahead from dozens of past days, using only what was known on that day, and are '
+            'scored against the benchmark "the price stays where it is", with a statistical test of whether any '
+            "gap is more than luck. It also checks whether the simulator's price range for that stock has held up. "
+            "Call this when the user asks whether a stock's price can be forecast or predicted, whether a "
+            "forecasting method works, or how far to trust the simulator's range. It gives no price forecast and "
+            'takes 5 to 30 seconds. If it fails, say so and do not make up results.'),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'symbol': {'type': 'string', 'description': 'Ticker symbol, like AAPL or BRK-B'},
+                'horizon_days': {'type': 'integer', 'enum': [5, 21, 63], 'description': 'How far ahead the forecasts look, in trading days: 5 is 1 week, 21 is 1 month, 63 is 3 months. Default 21'},
+            },
+            'required': ['symbol'],
             'additionalProperties': False,
         },
     },

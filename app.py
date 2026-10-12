@@ -267,6 +267,7 @@ examples = [
     'I bought 100 shares of AAPL at $180 and paid $5 commission each way. With 15% tax, should I sell now or hold for 3 months?',
     "What's my break-even price on 50 shares of MSFT bought at $410 with $9.99 commission each way?",
     'How risky is holding 20 shares of TSLA that I bought at $250 for the next 6 months?',
+    'Could any forecasting method have beaten just assuming the price of NVDA stays put over a month?',
 ]
 
 

@@ -299,6 +299,13 @@ def test_clean_limits():
         agent.clean({'messages': big})
 
 
+def test_the_prompt_says_when_to_use_the_scoreboard_and_that_it_is_not_a_prediction():
+    p = agent.system
+    assert "whether a stock's price can be forecast or predicted" in p and 'how far to trust the simulator' in p
+    assert 'never give a price prediction of your own' in p
+    assert 'never present a method that did well on the past as a forecast of the future' in p
+
+
 def test_the_prompt_knows_the_tools():
     for name in tools.functions:
         assert name in agent.system

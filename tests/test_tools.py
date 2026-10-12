@@ -1,7 +1,10 @@
+import json
+
 import numpy as np
 import pytest
 
 import app
+import forecast
 import prices
 import tools
 
@@ -256,6 +259,13 @@ def test_the_schemas_ask_for_exactly_what_the_functions_read():
     assert props['calculate_trade'] == set(trade)
     assert props['simulate_holding'] == set(hold) | {'symbol', 'expected_return_percent', 'model'}
     assert props['get_stock_info'] == {'symbol'}
+    assert props['forecast_scoreboard'] == {'symbol', 'horizon_days'}
+
+
+def test_the_horizons_offered_are_the_ones_the_scoreboard_has():
+    schema = [t for t in tools.tooldefs if t['name'] == 'forecast_scoreboard'][0]['input_schema']
+    assert schema['properties']['horizon_days']['enum'] == list(forecast.horizons)
+    assert schema['required'] == ['symbol']
 
 
 def test_limits_match_the_web_forms():
@@ -266,3 +276,138 @@ def test_limits_match_the_web_forms():
     fields = {f[0]: f[2:5] for f in app.simfields + app.calcfields}
     for tool, form in pairs.items():
         assert tools.limits[tool] == fields[form], tool
+
+
+# forecast_scoreboard
+
+@pytest.fixture
+def quick(monkeypatch):
+    # three methods instead of six so these run fast, and nothing remembered from other tests
+    monkeypatch.setattr(forecast, 'names', ['naive', 'drift', 'ridge'])
+    forecast.cache.clear()
+    yield
+    forecast.cache.clear()
+
+
+def wander(n=1300, seed=1, up=0.0003, vol=0.015):
+    return np.exp(np.log(100) + np.cumsum(np.random.default_rng(seed).normal(up, vol, n)))
+
+
+def fakehistory(monkeypatch, c=None, boom=None):
+    calls = []
+
+    def history(sym, years=2):
+        calls.append((sym, years))
+        if boom:
+            raise boom
+        return c
+    monkeypatch.setattr(prices, 'history', history)
+    return calls
+
+
+def test_the_scoreboard_tool_reports_the_test(monkeypatch, quick):
+    c = wander()
+    calls = fakehistory(monkeypatch, c)
+    r = tools.forecast_scoreboard(dict(symbol='abc'))
+    assert calls == [('ABC', forecast.years)]
+    assert r['symbol'] == 'ABC' and r['horizon'] == '1 month'                 # 21 days unless told otherwise
+    assert r['daily_prices_used'] == 1300 and r['forecasts_tested'] >= 30
+    assert [m['method'] for m in r['methods']] == [forecast.labels['drift'], forecast.labels['ridge']]
+    assert r['summary'] and r['sample_size_note']
+    assert [c['range_percent'] for c in r['simulator_range_check']] == [80, 90]
+    json.dumps(r)
+    assert len(json.dumps(r)) < 4000                                          # it all goes into the model's context
+
+
+def test_the_scoreboard_tool_gives_the_same_numbers_as_the_page(monkeypatch, quick):
+    c = wander(seed=3)
+    fakehistory(monkeypatch, c)
+    page = forecast.scoreboard(np.log(c), 63)
+    r = tools.forecast_scoreboard(dict(symbol='abc', horizon_days=63))
+    assert r['horizon'] == '3 months' and r['summary'] == page['headline']
+    for m, row in zip(r['methods'], [x for x in page['rows'] if x['name'] != 'naive']):
+        assert m['average_miss_percent'] == pytest.approx(row['miss'], abs=0.05)
+        assert m['better_than_benchmark_by_percent'] == pytest.approx(row['skill'], abs=0.05)
+        assert m['luck_test_p_value'] == pytest.approx(row['padj'], abs=0.0005)
+    assert r['benchmark_average_miss_percent'] == pytest.approx(page['rows'][0]['miss'], abs=0.05)
+    for got, want in zip(r['simulator_range_check'], page['calibration']):
+        assert got['held_percent'] == round(want['covered']) and got['separate_forecasts'] == want['indep']
+
+
+def test_the_scoreboard_tool_says_in_words_what_each_method_did(monkeypatch, quick):
+    fakehistory(monkeypatch, np.exp(np.log(100) + np.cumsum(np.random.default_rng(4).normal(0.0015, 0.006, 1300))))
+    r = tools.forecast_scoreboard(dict(symbol='abc'))
+    assert {m['result'] for m in r['methods']} == {'beat the benchmark'}
+    assert all(c['result'] == 'too narrow' for c in r['simulator_range_check'])      # a steady climb leaves the 0% range behind
+    r = tools.forecast_scoreboard(dict(symbol='abc', horizon_days=5))
+    assert {m['result'] for m in r['methods']} <= {'beat the benchmark', "can't be told apart from luck"}
+
+
+def test_the_scoreboard_tool_has_no_forecast_price_in_it(monkeypatch, quick):
+    fakehistory(monkeypatch, wander())
+    r = tools.forecast_scoreboard(dict(symbol='abc'))
+    assert set(r) == {'symbol', 'horizon', 'daily_prices_used', 'forecasts_tested', 'days_between_forecasts', 'benchmark',
+                      'benchmark_average_miss_percent', 'summary', 'sample_size_note', 'methods',
+                      'simulator_range_check', 'notes'}
+    assert set(r['methods'][0]) == {'method', 'average_miss_percent', 'better_than_benchmark_by_percent',
+                                    'nearer_than_benchmark_percent', 'right_direction_percent', 'luck_test_p_value', 'result'}
+    assert 'not a prediction' in r['notes']
+
+
+@pytest.mark.parametrize('given, days', [(5, 5), (21, 21), (63, 63), (63.0, 63), ('63', 63), (None, 21), ('', 21)])
+def test_the_scoreboard_tool_takes_the_horizons_it_offers(monkeypatch, quick, given, days):
+    fakehistory(monkeypatch, wander())
+    r = tools.forecast_scoreboard(dict(symbol='abc', horizon_days=given))
+    assert r['horizon'] == forecast.horizons[days]
+
+
+@pytest.mark.parametrize('bad', [7, 0, -21, 21.5, True, False, 'abc', [21], {'a': 1}, float('nan'), float('inf'), 252])
+def test_the_scoreboard_tool_refuses_other_horizons(monkeypatch, quick, bad):
+    calls = fakehistory(monkeypatch, wander())
+    with pytest.raises(tools.ToolError, match=r'horizon_days must be 5 \(1 week\), 21 \(1 month\) or 63 \(3 months\)'):
+        tools.forecast_scoreboard(dict(symbol='abc', horizon_days=bad))
+    assert calls == []
+
+
+@pytest.mark.parametrize('args, msg', [({}, 'symbol is required'), ({'symbol': ''}, 'symbol is required'),
+                                       ({'symbol': 'NOT A SYMBOL'}, 'symbol must be 1 to 10')])
+def test_the_scoreboard_tool_needs_a_symbol(monkeypatch, quick, args, msg):
+    fakehistory(monkeypatch, wander())
+    with pytest.raises(tools.ToolError, match=msg):
+        tools.forecast_scoreboard(args)
+
+
+def test_the_scoreboard_tool_explains_a_failed_lookup(monkeypatch, quick):
+    fakehistory(monkeypatch, boom=prices.PriceError("Couldn't get prices for ABC right now."))
+    with pytest.raises(tools.ToolError) as e:
+        tools.forecast_scoreboard(dict(symbol='abc'))
+    msg = str(e.value)
+    assert "Couldn't get prices for ABC right now." in msg and 'tell the user' in msg
+    assert 'Advanced' not in msg and 'volatility' not in msg                  # that hint is for the web form
+
+
+def test_the_scoreboard_tool_says_how_much_history_is_needed(monkeypatch, quick):
+    fakehistory(monkeypatch, wander(900))
+    with pytest.raises(tools.ToolError) as e:
+        tools.forecast_scoreboard(dict(symbol='abc', horizon_days=63))
+    assert 'ABC has only 900 daily prices' in str(e.value) and '3 months' in str(e.value)
+    assert '{:,}'.format(forecast.minimum(63)) in str(e.value) and 'shorter horizon_days' in str(e.value)
+
+
+def test_the_scoreboard_tool_says_when_the_server_is_busy(monkeypatch, quick):
+    fakehistory(monkeypatch, wander())
+    taken = [forecast.slots.acquire(), forecast.slots.acquire()]
+    try:
+        out, err = tools.run('forecast_scoreboard', dict(symbol='abc'))
+    finally:
+        for _ in taken:
+            forecast.slots.release()
+    assert err is True and 'Other forecasts are running' in out
+
+
+def test_the_scoreboard_tool_works_through_run(monkeypatch, quick):
+    fakehistory(monkeypatch, wander())
+    out, err = tools.run('forecast_scoreboard', dict(symbol='abc'))
+    assert err is False and out['symbol'] == 'ABC'
+    out, err = tools.run('forecast_scoreboard', dict(symbol='abc', horizon_days=7))
+    assert err is True and 'horizon_days must be' in out
