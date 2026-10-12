@@ -100,9 +100,13 @@ def summary(rows):
         if worse:
             head += ' {} did measurably worse.'.format(', '.join(r['label'] for r in worse))
 
-    least = min(r['needs'] for r in tested)
-    detail = ('With {} forecasts a model has to cut the average miss by about {:.0f}% or more before it can be told apart '
-              'from luck, so a smaller real edge would not show up here.').format(min(r['n'] for r in tested), least)
+    least, n = min(r['needs'] for r in tested), min(r['n'] for r in tested)
+    if least >= 100:
+        # a method cannot cut its miss by more than all of it, so no gap would have counted
+        detail = 'With only {} forecasts none of these comparisons can tell a real edge from luck.'.format(n)
+    else:
+        detail = ('With {} forecasts a model had to cut the average miss by at least about {:.0f}% to be told apart from '
+                  'luck. Smaller real edges would not show up here.').format(n, least)
     return dict(headline=head, detail=detail)
 
 

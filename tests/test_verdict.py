@@ -157,8 +157,8 @@ def test_without_a_winner_the_headline_says_so_and_names_the_losers():
     rows, out = judged(bt)
     assert out['headline'].startswith('No model beat "price stays put"')
     assert 'c did measurably worse' in out['headline']
-    assert out['detail'].startswith('With 40 forecasts a model has to cut the average miss by about ')
-    assert out['detail'].endswith('% or more before it can be told apart from luck, so a smaller real edge would not show up here.')
+    assert out['detail'].startswith('With 40 forecasts a model had to cut the average miss by at least about ')
+    assert out['detail'].endswith('% to be told apart from luck. Smaller real edges would not show up here.')
 
 
 def test_needs_is_the_gap_that_would_just_have_counted():
@@ -172,6 +172,14 @@ def test_needs_is_the_gap_that_would_just_have_counted():
     r = vd.dm(shifted, bt['origins'], bt['h'])
     m = 3                                                            # models tested
     assert r['p'] == pytest.approx(0.05 / m, rel=0.01)
+
+
+def test_when_no_gap_could_ever_count_it_says_that_instead_of_a_percent_over_100():
+    rows = [dict(name='naive', edge=None, needs=None, n=40),
+            dict(name='x', label='X', edge='tied', needs=140.0, n=40, skill=-3.0),
+            dict(name='y', label='Y', edge='tied', needs=210.0, n=33, skill=1.0)]
+    out = vd.summary(rows)
+    assert out['detail'] == 'With only 33 forecasts none of these comparisons can tell a real edge from luck.'
 
 
 def test_models_with_no_forecasts_or_too_few_are_left_out_of_the_family():
