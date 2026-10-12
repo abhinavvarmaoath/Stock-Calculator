@@ -1,9 +1,12 @@
+import threading
 import time
 
 import numpy as np
 
 cache = {}          # (symbol, years) -> (time fetched, closes)
 ttl = 15 * 60       # keep prices for 15 minutes so we don't keep hitting yahoo
+keep = 256          # most symbols remembered at once
+lock = threading.Lock()
 
 tryagain = ' Try again, or enter the current price and volatility under Advanced.'
 
@@ -40,7 +43,11 @@ def history(sym, years=2):
     if len(closes) < 60:
         raise PriceError('Not enough price history for {} to work out volatility.'.format(sym))
 
-    cache[(sym, years)] = (time.time(), closes)
+    with lock:
+        cache.pop((sym, years), None)           # so a refreshed one counts as the newest
+        if len(cache) >= keep:
+            del cache[next(iter(cache))]        # forget the oldest
+        cache[(sym, years)] = (time.time(), closes)
     return closes
 
 

@@ -70,6 +70,20 @@ def test_a_longer_history_is_not_served_from_a_shorter_one(monkeypatch):
     assert calls == ['ABC', 'ABC'] and calls.periods == ['2y', '10y']
 
 
+def test_the_cache_has_a_limit_and_forgets_the_oldest(monkeypatch):
+    fakeyf(monkeypatch, df=closes(100))
+    monkeypatch.setattr(prices, 'keep', 3)
+    for sym in ('A', 'B', 'C'):
+        prices.history(sym)
+    when, c = prices.cache[('B', 2)]
+    prices.cache[('B', 2)] = (when - prices.ttl - 1, c)
+    prices.history('B')                                 # fetched again, so it is now the newest
+    prices.history('D')
+    assert sorted(k[0] for k in prices.cache) == ['B', 'C', 'D']
+    prices.history('E')
+    assert sorted(k[0] for k in prices.cache) == ['B', 'D', 'E']
+
+
 def test_cache_expires(monkeypatch):
     calls = fakeyf(monkeypatch, df=closes(100))
     prices.history('ABC')
