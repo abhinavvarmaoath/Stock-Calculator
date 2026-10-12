@@ -1,3 +1,5 @@
+import hashlib
+import threading
 import warnings
 
 import numpy as np
@@ -22,6 +24,7 @@ labels = dict(
     gbm='Gradient boosting',
 )
 horizons = {5: '1 week', 21: '1 month', 63: '3 months'}
+years = 10          # of daily closes to test on, when they come from the price lookup
 
 
 class TooShort(Exception):
@@ -184,3 +187,45 @@ def scoreboard(lp, h, which=None):
     return dict(h=h, horizon=horizons.get(h, '{} days'.format(h)), prices=int(len(lp)),
                 forecasts=int(len(bt['origins'])), every=bt['step'], rows=rows,
                 calibration=verdict.calibrate(lp, bt), **said)
+
+
+# what the page and the assistant call
+
+cache = {}          # (the prices, days ahead) -> answer
+keep = 64
+slots = threading.BoundedSemaphore(2)       # scoreboards running at once. each keeps a cpu busy for 5 to 15 seconds
+lock = threading.Lock()
+
+
+class Busy(Exception):
+    pass
+
+
+def key(lp, h):
+    return hashlib.sha1(np.asarray(lp, dtype=float).tobytes()).hexdigest(), h
+
+
+def known(lp, h):
+    # is there already an answer, so asking costs nothing
+    with lock:
+        return key(lp, h) in cache
+
+
+def board(lp, h):
+    # scoreboard() with a memory of recent answers and a limit on how many run at once
+    lp = np.asarray(lp, dtype=float)
+    k = key(lp, h)
+    with lock:
+        if k in cache:
+            return cache[k]
+    if not slots.acquire(blocking=False):
+        raise Busy('Other forecasts are running. Try again in a few seconds.')
+    try:
+        out = scoreboard(lp, h)
+    finally:
+        slots.release()
+    with lock:
+        if len(cache) >= keep:
+            del cache[next(iter(cache))]        # forget the oldest
+        cache[k] = out
+    return out

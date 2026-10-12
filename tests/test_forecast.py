@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 import numpy as np
 import pytest
@@ -293,3 +295,119 @@ def test_the_scoreboard_is_plain_data_the_page_can_use():
 def test_the_scoreboard_takes_a_plain_list_of_prices():
     lp = walk(1, 800)
     assert fc.scoreboard(list(lp), 5, ['drift']) == fc.scoreboard(lp, 5, ['drift'])
+
+
+# the memory and the limit on how many run at once
+
+@pytest.fixture
+def counted(monkeypatch):
+    # scoreboard() replaced by something instant that counts how often it ran
+    fc.cache.clear()
+    calls = []
+
+    def fake(lp, h, which=None):
+        calls.append(h)
+        return dict(h=h, n=len(lp))
+    monkeypatch.setattr(fc, 'scoreboard', fake)
+    yield calls
+    fc.cache.clear()
+
+
+def test_the_same_question_is_answered_from_memory(counted):
+    lp = walk(1, 800)
+    assert fc.board(lp, 21) == fc.board(lp.copy(), 21) == dict(h=21, n=800)
+    assert counted == [21]
+
+
+def test_known_says_whether_asking_is_free(counted):
+    lp = walk(1, 800)
+    assert not fc.known(lp, 21)
+    fc.board(lp, 21)
+    assert fc.known(lp, 21) and not fc.known(lp, 5)
+
+
+def test_other_prices_or_another_horizon_are_a_new_question(counted):
+    lp = walk(1, 800)
+    other = lp.copy()
+    other[-1] += 0.01
+    fc.board(lp, 21)
+    fc.board(other, 21)
+    fc.board(lp, 5)
+    assert counted == [21, 21, 5]
+
+
+def test_the_oldest_answer_is_forgotten_first(counted, monkeypatch):
+    monkeypatch.setattr(fc, 'keep', 3)
+    prices = [walk(i, 800) for i in range(4)]
+    for p in prices:
+        fc.board(p, 5)
+    assert len(fc.cache) == 3
+    fc.board(prices[3], 5)                      # still remembered
+    fc.board(prices[0], 5)                      # not any more
+    assert counted == [5] * 5
+
+
+def test_when_all_the_places_are_taken_a_new_question_is_turned_away(counted):
+    lp = walk(1, 800)
+    fc.board(lp, 21)
+    taken = [fc.slots.acquire(), fc.slots.acquire()]
+    try:
+        with pytest.raises(fc.Busy):
+            fc.board(walk(2, 800), 21)
+        assert fc.board(lp, 21) == dict(h=21, n=800)        # a remembered answer needs no place
+    finally:
+        for _ in taken:
+            fc.slots.release()
+    assert fc.board(walk(2, 800), 21)
+
+
+def test_the_place_is_given_back_when_a_scoreboard_fails():
+    fc.cache.clear()
+    with pytest.raises(fc.TooShort):
+        fc.board(walk(1, 300), 21)
+    with pytest.raises(fc.TooShort):
+        fc.board(walk(1, 300), 21)
+    with pytest.raises(fc.TooShort):
+        fc.board(walk(1, 300), 21)              # a third failure would be Busy if the places were not returned
+
+
+def test_at_most_two_run_at_once(monkeypatch):
+    fc.cache.clear()
+    running, peak = [0], [0]
+    lock = threading.Lock()
+
+    def slow(lp, h, which=None):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.3)
+        with lock:
+            running[0] -= 1
+        return dict(h=h)
+    monkeypatch.setattr(fc, 'scoreboard', slow)
+
+    outcome = []
+    go = threading.Barrier(5)
+
+    def ask(i):
+        go.wait()
+        try:
+            fc.board(walk(i, 800), 21)
+            outcome.append('ran')
+        except fc.Busy:
+            outcome.append('busy')
+    threads = [threading.Thread(target=ask, args=(i,)) for i in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(outcome) == ['busy', 'busy', 'busy', 'ran', 'ran'] and peak[0] == 2
+    fc.cache.clear()
+
+
+def test_every_method_runs_from_start_to_finish():
+    # arima and holt are slow, so this is the one place they run inside a whole scoreboard
+    out = fc.scoreboard(walk(5, fc.minimum(21) + 5), 21)
+    assert [r['name'] for r in out['rows']] == fc.names
+    assert all(r['n'] == out['forecasts'] and r['failed'] == 0 for r in out['rows'])
+    json.dumps(out)
