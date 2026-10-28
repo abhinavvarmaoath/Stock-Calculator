@@ -313,13 +313,13 @@ tooldefs = [
         'name': 'forecast_scoreboard',
         'description': (
             "Test how well forecasting methods would have predicted a stock's price, using its own last 10 years "
-            'of daily prices. Six methods (including ARIMA and gradient boosting) each forecast the price 1 week, '
+            'of daily prices. Several methods (including ARIMA, Prophet and gradient boosting) each forecast the price 1 week, '
             '1 month or 3 months ahead from dozens of past days, using only what was known on that day, and are '
             'scored against the benchmark "the price stays where it is", with a statistical test of whether any '
             "gap is more than luck. It also checks whether the simulator's price range for that stock has held up. "
             "Call this when the user asks whether a stock's price can be forecast or predicted, whether a "
             "forecasting method works, or how far to trust the simulator's range. It gives no price forecast and "
-            'takes 5 to 30 seconds. If it fails, say so and do not make up results.'),
+            'takes 10 to 40 seconds. If it fails, say so and do not make up results.'),
         'input_schema': {
             'type': 'object',
             'properties': {

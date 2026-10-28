@@ -52,6 +52,14 @@ def pct(x):
 
 
 @app.template_filter()
+def words(n):
+    return forecast.count(int(n))
+
+
+app.jinja_env.globals['methods'] = lambda: len(forecast.names)
+
+
+@app.template_filter()
 def signed(x):
     return '{:+.1f}%'.format(float(x))
 

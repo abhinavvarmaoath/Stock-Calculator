@@ -3,7 +3,7 @@
 {% block body %}
 {% macro num(v, fmt) %}{% if v is none %}&mdash;{% else %}{{ fmt.format(v) }}{% endif %}{% endmacro %}
 <h1>Forecast scoreboard <span class="sym">{{ label }}</span></h1>
-<p class="lead">Six ways to forecast the price {{ res.horizon }} ahead, each tried on {{ res.forecasts }} past days and marked against what really happened. {{ '{:,}'.format(res.prices) }} daily closes.</p>
+<p class="lead">{{ res.rows|length|words|capitalize }} ways to forecast the price {{ res.horizon }} ahead, each tried on {{ res.forecasts }} past days and marked against what really happened. {{ '{:,}'.format(res.prices) }} daily closes.</p>
 
 <div class="verdict{{ ' good' if win else '' }}">
   <p class="headline">{{ res.headline }}</p>
@@ -97,12 +97,13 @@
 </ul>
 
 <details>
-  <summary>What the six methods are</summary>
+  <summary>What the {{ res.rows|length|words }} methods are</summary>
   <ul class="assume">
     <li><strong>Price stays put:</strong> today's price is the forecast. The benchmark everything is marked against.</li>
     <li><strong>Drift:</strong> keeps growing at the average pace of the last year.</li>
     <li><strong>Damped trend (Holt):</strong> exponential smoothing with a trend that fades out, fitted on the last 2 years.</li>
     <li><strong>ARIMA(1,1,1):</strong> a classic time series model with a steady drift, fitted on the last 2 years.</li>
+    <li><strong>Prophet (trend only):</strong> Meta's forecasting library, fitted on the last 2 years. It uses its trend alone: the prices carry no dates, so it has no weekly or yearly pattern to find.</li>
     <li><strong>Momentum regression:</strong> a ridge regression on recent returns, recent volatility and how far the price is from its 200 day average.</li>
     <li><strong>Gradient boosting:</strong> a small set of decision trees on the same inputs.</li>
   </ul>

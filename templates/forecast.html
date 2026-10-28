@@ -3,7 +3,7 @@
 {% block title %}Forecast scoreboard{% endblock %}
 {% block body %}
 <h1>Forecast scoreboard</h1>
-<p class="lead">Can anything beat "the price stays where it is"? This tries six ways of forecasting on a stock's own past prices and shows which, if any, did better than luck.</p>
+<p class="lead">Can anything beat "the price stays where it is"? This tries {{ methods()|words }} ways of forecasting on a stock's own past prices and shows which, if any, did better than luck.</p>
 
 {{ errors(errs) }}
 
@@ -27,7 +27,7 @@
   </details>
 
   <button type="submit" id="go">Run the test</button>
-  <p class="note" id="running" role="status" hidden>Testing six methods on years of prices. This can take 10 to 30 seconds.</p>
+  <p class="note" id="running" role="status" hidden>Testing {{ methods()|words }} methods on years of prices. This can take 10 to 40 seconds.</p>
 </form>
 
 <h2>What you get</h2>

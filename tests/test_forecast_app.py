@@ -1,4 +1,5 @@
 import html
+import os
 import re
 
 import numpy as np
@@ -9,6 +10,9 @@ import prices
 from app import app
 
 
+REAL = list(forecast.names)         # the whole list, before the tests below make it shorter
+
+
 @pytest.fixture
 def client():
     app.testing = True
@@ -17,7 +21,7 @@ def client():
 
 @pytest.fixture(autouse=True)
 def fresh(monkeypatch):
-    # fast, repeatable: three methods instead of six, and nothing remembered between tests
+    # fast, repeatable: three methods instead of seven, and nothing remembered between tests
     monkeypatch.setattr(forecast, 'names', ['naive', 'drift', 'ridge'])
     forecast.cache.clear()
     prices.cache.clear()
@@ -65,6 +69,34 @@ def test_the_form_page(client):
     assert 'href="/forecast"' in body                                   # in the menu
 
 
+def test_the_text_counts_and_lists_the_methods_that_there_are(client, monkeypatch):
+    # adding a method means saying so in the readme and on the page, and this fails until that is done
+    monkeypatch.setattr(forecast, 'names', REAL)
+    word = forecast.count()
+    form = text(client.get('/forecast'))
+    assert 'This tries {} ways of forecasting'.format(word) in form
+    assert 'Testing {} methods'.format(word) in form
+
+    inreadme = dict(naive='benchmark', drift='drift', holt='Holt', arima='ARIMA', prophet='Prophet',
+                    ridge='ridge regression', gbm='gradient boosting')
+    onpage = dict(naive='Price stays put', drift='Drift', holt='Damped trend (Holt)', arima='ARIMA(1,1,1)',
+                  prophet='Prophet (trend only)', ridge='Momentum regression', gbm='Gradient boosting')
+    assert set(inreadme) == set(onpage) == set(REAL)
+    readme = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'README.md')).read()
+    assert 'the app tries {} forecasting methods'.format(word) in readme
+    for name in REAL:
+        assert inreadme[name] in readme
+
+
+def test_the_results_page_counts_and_describes_the_methods_it_ran(client, monkeypatch):
+    lookup(monkeypatch)
+    t = text(post(client))
+    assert 'Three ways to forecast the price 1 month ahead' in t and 'What the three methods are' in t
+    for heading in ('Price stays put', 'Drift', 'Damped trend (Holt)', 'ARIMA(1,1,1)', 'Prophet (trend only)',
+                    'Momentum regression', 'Gradient boosting'):
+        assert heading in t.split('methods are')[1]
+
+
 def test_the_form_can_be_filled_in_from_the_link(client):
     body = client.get('/forecast?stksymbol=MSFT&h=63').get_data(as_text=True)
     assert 'value="MSFT"' in body and re.search(r'<option value="63"\s+selected', body)
@@ -81,7 +113,7 @@ def test_a_run_shows_the_scoreboard(client, monkeypatch):
     assert 'Forecast scoreboard ABC' in t and '1 month' in t
     for name in ('naive', 'drift', 'ridge'):
         assert forecast.labels[name] in t
-    assert forecast.labels['gbm'] not in r.get_data(as_text=True).split('What the six methods are')[0]
+    assert forecast.labels['gbm'] not in r.get_data(as_text=True).split('methods are')[0]
     assert 'Has the simulator' in t and 'held' in t
     assert 'id="boarddata"' in r.get_data(as_text=True)
 
@@ -98,6 +130,23 @@ def test_a_flat_price_gets_a_plain_answer(client, monkeypatch):
     r = post(client, stksymbol='', closes='\n'.join(['100'] * 800))
     assert r.status_code == 200
     assert 'nothing to forecast' in text(r) and 'luck zone' not in r.get_data(as_text=True)
+
+
+def test_a_method_that_cannot_run_is_shown_as_failed_and_the_rest_carry_on(client, monkeypatch):
+    # prophet is the most fragile one (it needs a compiled stan runtime). if it cannot load, the page says so
+    monkeypatch.setattr(forecast, 'names', ['naive', 'drift', 'prophet'])
+    real = forecast.make
+
+    def broken(lp, h):
+        raise ImportError('no stan here')
+    monkeypatch.setattr(forecast, 'make', lambda name: broken if name == 'prophet' else real(name))
+    lookup(monkeypatch)
+    r = post(client)
+    t = text(r)
+    assert r.status_code == 200
+    n = int(re.search(r'tried on (\d+) past days', t).group(1))
+    assert '{} of {} forecasts failed'.format(n, n) in t
+    assert 'Too few forecasts' in t and forecast.labels['drift'] in t
 
 
 def test_the_chart_data_is_in_the_page(client, monkeypatch):

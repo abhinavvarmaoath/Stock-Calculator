@@ -282,7 +282,7 @@ def test_limits_match_the_web_forms():
 
 @pytest.fixture
 def quick(monkeypatch):
-    # three methods instead of six so these run fast, and nothing remembered from other tests
+    # three methods instead of seven so these run fast, and nothing remembered from other tests
     monkeypatch.setattr(forecast, 'names', ['naive', 'drift', 'ridge'])
     forecast.cache.clear()
     yield

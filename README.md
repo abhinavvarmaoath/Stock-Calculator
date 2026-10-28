@@ -48,12 +48,13 @@ What it assumes:
 
 ## Forecast scoreboard
 
-Can anything beat "the price stays where it is"? Pick a stock and how far ahead to look (1 week, 1 month or 3 months) and the app tries six forecasting methods on its last 10 years of daily closes:
+Can anything beat "the price stays where it is"? Pick a stock and how far ahead to look (1 week, 1 month or 3 months) and the app tries seven forecasting methods on its last 10 years of daily closes:
 
 - the benchmark: today's price is the forecast
 - drift: keeps growing at the average pace of the last year
 - damped trend (Holt exponential smoothing)
 - ARIMA(1,1,1)
+- Prophet, Meta's forecasting library, on its trend alone (the prices carry no dates, so it has no weekly or yearly pattern to find)
 - a ridge regression on recent returns, recent volatility and how far the price is from its 200 day average
 - gradient boosting on the same inputs
 
@@ -74,7 +75,7 @@ How it is kept honest:
 - the luck test allows for the methods tried on one stock, not for how many stocks you look at: try 20 and about one will show a winner by luck alone
 - it only looks backwards. There is no forecast price anywhere on the page, and a method that won on the past may not win tomorrow
 
-Limits: a 1 week test needs 539 daily closes (about 2 years), a 1 month test 735 and a 3 month test 1,197, so a recent listing can only use the shorter ones. It takes 10 to 30 seconds. At most 2 run at once and one address gets 6 new ones every 10 minutes. The last 64 answers are remembered, so asking again for the same prices costs nothing. If the price lookup fails, or for something Yahoo does not have, paste your own closing prices under Advanced (oldest first, one on each line, up to 4,000).
+Limits: a 1 week test needs 539 daily closes (about 2 years), a 1 month test 735 and a 3 month test 1,197, so a recent listing can only use the shorter ones. It takes 10 to 40 seconds. At most 2 run at once and one address gets 6 new ones every 10 minutes. The last 64 answers are remembered, so asking again for the same prices costs nothing. If the price lookup fails, or for something Yahoo does not have, paste your own closing prices under Advanced (oldest first, one on each line, up to 4,000).
 
 ## Assistant
 
@@ -108,7 +109,7 @@ Then put your key in `ANTHROPIC_API_KEY` and a model name from Anthropic's model
 
 It uses your API credits: each question is a few model calls. Answers are not financial advice.
 
-If you put the app on the internet: the assistant spends your credits for anyone who can reach it, and a new forecast scoreboard keeps a processor busy for 10 seconds or more. They only limit each address (10 questions a minute, 6 new forecasts every 10 minutes), and behind a proxy every visitor can look like the same address. Put a login in front of it first.
+If you put the app on the internet: the assistant spends your credits for anyone who can reach it, and a new forecast scoreboard keeps a few processors busy for 10 seconds or more. They only limit each address (10 questions a minute, 6 new forecasts every 10 minutes), and behind a proxy every visitor can look like the same address. Put a login in front of it first.
 
 ## Run it
 
