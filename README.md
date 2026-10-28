@@ -107,6 +107,7 @@ Things to know:
 - The list lives in `watchlist.db` next to `app.py` (set `WATCHLIST_DB` to move it). It holds your positions, so git ignores it.
 - A position can only be added when its price can be looked up, so a mistyped symbol is caught straight away. There is room for 50, and a check asks Yahoo once for each symbol.
 - Prices are the latest Yahoo Finance has and can be a day old.
+- Stock splits are not handled. After one, take the position off and add it again with the new number of shares and buy price, or the break-even will be wrong and the next check can raise a false alert.
 - Two checks at the same moment (cron and the button) say a crossing only once.
 - Forms from other sites are refused, and one address gets 3 presses of Check now and 20 new positions every 10 minutes.
 
