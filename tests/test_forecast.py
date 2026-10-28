@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import threading
 import time
 import warnings
@@ -35,7 +38,7 @@ def test_drift_ignores_what_happened_before_the_last_year():
     assert fc.drift(lp, 10) == pytest.approx(lp[-1] + 0.030)
 
 
-@pytest.mark.parametrize('model', ['holt', 'arima'])
+@pytest.mark.parametrize('model', ['holt', 'arima', 'prophet'])
 def test_trend_models_carry_a_steady_climb_forward(model):
     rng = np.random.default_rng(5)
     lp = 0.001 * np.arange(600.0) + np.cumsum(rng.normal(0, 0.0005, 600))
@@ -95,6 +98,49 @@ def test_forecasts_running_together_leave_the_warning_filters_as_they_were(monke
     for t in threads:
         t.join()
     assert list(warnings.filters) == before
+
+
+def test_prophet_writes_nothing_to_the_log_from_its_very_first_fit():
+    # the stan runner prints a line per fit unless it is told not to before it starts, so this has
+    # to be a fresh program. (that test run happens to have been quiet already would prove nothing)
+    code = ('import numpy as np, forecast as fc\n'
+            'lp = np.cumsum(np.random.default_rng(1).normal(0.001, 0.01, 700))\n'
+            'print(round(fc.prophet(lp, 10) - lp[-1], 3))')
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, '-c', code], cwd=here, capture_output=True, text=True, timeout=120,
+                       env=dict(os.environ, PYTHONPATH=here, PYTHONDONTWRITEBYTECODE='1'))
+    assert r.returncode == 0, r.stderr
+    assert r.stderr.strip() == ''
+    assert abs(float(r.stdout.strip())) < 0.2                      # and it did forecast something, a few percent
+
+
+def test_prophet_is_given_the_last_two_years_and_nothing_else(monkeypatch):
+    # what it is handed: 504 days of the log price, no seasonality, and a date to forecast h business days on
+    import prophet as pr
+    seen = {}
+
+    class Spy:
+        def __init__(self, **kw):
+            seen['settings'] = kw
+
+        def fit(self, df):
+            seen['fit'] = df
+            return self
+
+        def predict(self, df):
+            seen['predict'] = df
+            import pandas as pd
+            return pd.DataFrame({'yhat': [1.25]})
+    monkeypatch.setattr(pr, 'Prophet', Spy)
+    lp = walk(1, 900)
+    assert fc.prophet(lp, 21) == 1.25
+    assert seen['settings'] == dict(daily_seasonality=False, weekly_seasonality=False, yearly_seasonality=False,
+                                    uncertainty_samples=0)
+    assert np.array_equal(seen['fit']['y'].to_numpy(), lp[-504:])
+    days = seen['fit']['ds']
+    assert len(days) == 504 and days.is_monotonic_increasing and set(days.dt.dayofweek) <= {0, 1, 2, 3, 4}
+    import pandas as pd
+    assert seen['predict']['ds'].iloc[0] == pd.bdate_range(days.iloc[0], periods=504 + 21)[-1]
 
 
 def test_features_only_use_the_past():
@@ -226,6 +272,11 @@ def test_no_model_can_see_past_the_day_it_forecasts_from(h):
     assert leaks(walk(7, 800), h, cut=650) == []
 
 
+def test_count_says_how_many_methods_in_words():
+    assert [fc.count(n) for n in (1, 3, 7, 10, 11)] == ['one', 'three', 'seven', 'ten', '11']
+    assert fc.count() == fc.numbers[len(fc.names)]
+
+
 def test_the_check_notices_a_model_that_peeks(monkeypatch):
     # prove the check above can fail: a model that reads the real future has to be caught
     seen = {}
@@ -241,6 +292,114 @@ def test_the_check_notices_a_model_that_peeks(monkeypatch):
         return real_backtest(lp, h, which)
     monkeypatch.setattr(fc, 'backtest', recording)
 
+    assert leaks(walk(7, 800), 5, cut=650, which=['peek']) == ['peek']
+
+
+# methods that run in threads
+
+def thread_model(calls=None, boom=None):
+    # a stand-in method that wants its forecasts shared out over threads
+    def f(lp, h):
+        if calls is not None:
+            calls.append(threading.current_thread())
+        if boom and len(lp) % boom == 0:
+            raise RuntimeError('stan failed')
+        return lp[-1] + 0.01 * (len(lp) % 7)
+    f.threads = True
+    return f
+
+
+def test_forecasts_made_in_threads_are_the_same_as_one_after_another(monkeypatch):
+    lp = walk(1, 800)
+    calls = []
+    real = fc.make
+    monkeypatch.setattr(fc, 'make', lambda name: thread_model(calls) if name == 'th' else real(name))
+    got = fc.backtest(lp, 5, ['th', 'drift'])
+    assert [t is not threading.main_thread() for t in calls] == [True] * len(calls) and len(calls) == len(got['origins'])
+    want = np.array([lp[t] + 0.01 * ((t + 1) % 7) for t in got['origins']])
+    assert np.array_equal(got['preds']['th'], want)
+    assert list(got['preds']) == ['naive', 'th', 'drift']                  # in the order asked for, not the order they finished
+    one = fc.backtest(lp, 5, ['drift'])
+    assert np.array_equal(got['preds']['drift'], one['preds']['drift'])    # and the other methods are not disturbed
+
+
+def test_a_threaded_method_that_fails_is_counted_like_any_other(monkeypatch):
+    real = fc.make
+    monkeypatch.setattr(fc, 'make', lambda name: thread_model(boom=3) if name == 'th' else real(name))
+    bt = fc.backtest(walk(1, 800), 5, ['th'])
+    gone = [i for i, t in enumerate(bt['origins']) if (t + 1) % 3 == 0]
+    assert gone and bt['failed']['th'] == len(gone)
+    assert np.isnan(bt['preds']['th'][gone]).all() and np.isfinite(np.delete(bt['preds']['th'], gone)).all()
+    row = [r for r in fc.score(bt) if r['name'] == 'th'][0]
+    assert row['failed'] == len(gone) and row['n'] == len(bt['origins']) - len(gone)
+
+
+def test_threaded_forecasts_run_alongside_the_other_methods(monkeypatch):
+    # each side waits for the other to have started. done one after the other, whichever goes second never gets its turn
+    threaded_started, plain_started, gave_up = threading.Event(), threading.Event(), threading.Event()
+
+    def threaded(lp, h):
+        threaded_started.set()
+        if not plain_started.is_set() and not gave_up.is_set() and not plain_started.wait(timeout=2):
+            gave_up.set()
+        return lp[-1]
+    threaded.threads = True
+
+    def plain(lp, h):
+        plain_started.set()
+        if not threaded_started.is_set() and not gave_up.is_set() and not threaded_started.wait(timeout=2):
+            gave_up.set()
+        return lp[-1]
+    real = fc.make
+    monkeypatch.setattr(fc, 'make', lambda name: dict(th=threaded, plain=plain).get(name) or real(name))
+    for order in (['plain', 'th'], ['th', 'plain']):
+        threaded_started.clear()
+        plain_started.clear()
+        assert len(fc.backtest(walk(1, 800), 5, order)['origins']) > 20
+        assert not gave_up.is_set(), 'one side never got to start while the other was running (%s first)' % order[0]
+
+
+def test_only_prophet_is_given_threads():
+    # arima and holt hold python's interpreter lock for most of a fit, so threads made them slower in tests (0.7x and 1.0x),
+    # while prophet does its work in another process (2x)
+    assert [n for n in fc.names if getattr(fc.make(n), 'threads', False)] == ['prophet']
+
+
+def test_no_more_threads_than_asked_for(monkeypatch):
+    live, peak, lock = [0], [0], threading.Lock()
+
+    def counting(lp, h):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        time.sleep(0.01)
+        with lock:
+            live[0] -= 1
+        return lp[-1]
+    counting.threads = True
+    real = fc.make
+    monkeypatch.setattr(fc, 'make', lambda name: counting if name == 'th' else real(name))
+    monkeypatch.setattr(fc.os, 'cpu_count', lambda: 64)
+    fc.backtest(walk(1, 800), 5, ['th'])
+    assert 1 <= peak[0] <= 2
+
+
+def test_threaded_methods_are_also_only_given_the_past(monkeypatch):
+    real = fc.make
+    monkeypatch.setattr(fc, 'make', lambda name: thread_model() if name == 'th' else real(name))
+    assert leaks(walk(7, 800), 5, cut=650, which=['th']) == []
+
+    def peeker(lp, h):
+        return seen['full'][len(lp) - 1 + h]                            # reads the real future
+    peeker.threads = True
+    seen = {}
+    real_backtest = fc.backtest
+    monkeypatch.setattr(fc, 'make', lambda name: peeker if name == 'peek' else real(name))
+
+    def recording(lp, h, which=None):
+        seen['full'] = np.asarray(lp)
+        return real_backtest(lp, h, which)
+    monkeypatch.setattr(fc, 'backtest', recording)
     assert leaks(walk(7, 800), 5, cut=650, which=['peek']) == ['peek']
 
 

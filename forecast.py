@@ -1,6 +1,9 @@
 import hashlib
+import logging
+import os
 import threading
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -14,15 +17,17 @@ warm = 504          # two years of prices before the first test forecast
 target = 70         # about this many test forecasts, spread over the history
 first = 199         # days of history the features need
 
-names = ['naive', 'drift', 'holt', 'arima', 'ridge', 'gbm']
+names = ['naive', 'drift', 'holt', 'arima', 'prophet', 'ridge', 'gbm']
 labels = dict(
     naive='Naive (price stays put)',
     drift='Drift (average past growth)',
     holt='Damped trend (Holt)',
     arima='ARIMA(1,1,1)',
+    prophet='Prophet (trend only)',
     ridge='Momentum regression (ridge)',
     gbm='Gradient boosting',
 )
+numbers = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
 horizons = {5: '1 week', 21: '1 month', 63: '3 months'}
 years = 10          # of daily closes to test on, when they come from the price lookup
 
@@ -32,6 +37,12 @@ class TooShort(Exception):
 
 
 quiet = threading.Lock()        # catch_warnings changes the filters for the whole program, so one fit at a time uses it
+
+
+def count(n=None):
+    # how many methods there are, in words, for the text on the pages
+    n = len(names) if n is None else n
+    return numbers[n] if n < len(numbers) else str(n)
 
 
 def minimum(h):
@@ -65,6 +76,39 @@ def arima(lp, h):
         warnings.simplefilter('ignore')
         fit = ARIMA(lp[-504:], order=(1, 1, 1), trend='t').fit()
         return float(fit.forecast(h)[-1])
+
+
+stanlog = threading.Lock()
+stanquiet = []
+
+
+def quietstan():
+    # prophet and the stan runner write a couple of lines to the log for every fit. the runner adds its own
+    # console handler, and resets its level, when it finds none, so one is put there first
+    with stanlog:
+        if not stanquiet:
+            logging.getLogger('prophet.plot').setLevel(logging.CRITICAL)        # it grumbles that plotly is missing
+            log = logging.getLogger('cmdstanpy')
+            log.addHandler(logging.NullHandler())
+            log.setLevel(logging.WARNING)
+            stanquiet.append(True)
+
+
+def prophet(lp, h):
+    # Prophet on its trend alone. it wants dates and the prices carry none, so it is given business
+    # days that only put them in order, which is also why it has no weekly or yearly pattern to find.
+    # it runs stan as a separate process, so several of these can go at once (see backtest)
+    import pandas as pd
+    quietstan()
+    from prophet import Prophet
+    y = lp[-504:]
+    days = pd.bdate_range('2000-01-03', periods=len(y) + h)
+    m = Prophet(daily_seasonality=False, weekly_seasonality=False, yearly_seasonality=False, uncertainty_samples=0)
+    m.fit(pd.DataFrame({'ds': days[:len(y)], 'y': y}))
+    return float(m.predict(pd.DataFrame({'ds': [days[-1]]}))['yhat'].iloc[0])
+
+
+prophet.threads = True
 
 
 def features(lp, s):
@@ -118,10 +162,19 @@ class Learner:
 def make(name):
     if name in ('ridge', 'gbm'):
         return Learner(name)
-    return dict(naive=naive, drift=drift, holt=holt, arima=arima)[name]
+    return dict(naive=naive, drift=drift, holt=holt, arima=arima, prophet=prophet)[name]
 
 
 # the test
+
+def forecast_at(f, lp, t, h):
+    # one forecast made on day t, or nan when the method could not make one
+    try:
+        v = float(f(lp[:t + 1], h))             # a slice: the method cannot see past day t
+    except Exception:
+        return np.nan
+    return v if np.isfinite(v) else np.nan
+
 
 def backtest(lp, h, which=None):
     # forecast h days ahead from many past days and keep what actually happened
@@ -136,19 +189,18 @@ def backtest(lp, h, which=None):
     step = max(span // target, h // 3, 1)
     origins = np.arange(warm, n - h, step)
 
-    preds, failed = {}, {}
-    for name in which:
-        f = make(name)
-        out = np.full(len(origins), np.nan)
-        for i, t in enumerate(origins):
-            try:
-                v = float(f(lp[:t + 1], h))         # a slice: the model cannot see past day t
-            except Exception:
-                continue
-            if np.isfinite(v):
-                out[i] = v
-        preds[name] = out
-        failed[name] = int(np.isnan(out).sum())
+    fs = {name: make(name) for name in which}
+    workers = max(1, min(2, (os.cpu_count() or 2) - 1))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        # a method that does its work in another process (prophet) has its forecasts shared out
+        # over a few threads, and they run while the other methods are done here
+        later = {name: [pool.submit(forecast_at, f, lp, t, h) for t in origins]
+                 for name, f in fs.items() if getattr(f, 'threads', False)}
+        got = {name: np.array([forecast_at(f, lp, t, h) for t in origins])
+               for name, f in fs.items() if name not in later}
+        got.update({name: np.array([x.result() for x in futures]) for name, futures in later.items()})
+    preds = {name: got[name] for name in which}                 # in the order they were asked for
+    failed = {name: int(np.isnan(p).sum()) for name, p in preds.items()}
     return dict(h=h, step=int(step), origins=origins, last=lp[origins], actual=lp[origins + h],
                 preds=preds, failed=failed)
 
@@ -196,7 +248,7 @@ def scoreboard(lp, h, which=None):
 
 cache = {}          # (the prices, days ahead) -> answer
 keep = 64
-slots = threading.BoundedSemaphore(2)       # scoreboards running at once. each keeps a cpu busy for 5 to 15 seconds
+slots = threading.BoundedSemaphore(2)       # scoreboards running at once. each keeps a few cpus busy for 10 seconds or more
 lock = threading.Lock()
 
 
