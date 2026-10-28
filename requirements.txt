@@ -1,7 +1,8 @@
 flask>=3.0
 numpy>=2.0
 yfinance>=1.0
-anthropic>=1.0
+# the assistant is tested on the 1.x sdk. 2.x sends the key as a Bearer header and a newer api version, and has not been tried with a real key
+anthropic>=1.0,<2
 python-dotenv>=1.0
 pytest>=8.0
 scipy>=1.13
