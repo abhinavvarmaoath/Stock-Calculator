@@ -176,3 +176,12 @@ def test_sim_input_is_escaped(client, nonet):
     r = client.post('/sim', data={**good, 'stksymbol': '"><script>alert(1)</script>'})
     assert r.status_code == 400
     assert b'<script>alert(1)</script>' not in r.data
+
+
+@pytest.mark.parametrize('ndays, h', [('21', 21), ('63', 63), ('126', 63), ('252', 63)])
+def test_the_result_links_to_the_forecast_check_for_the_nearest_horizon(client, nonet, ndays, h):
+    html = client.post('/sim', data=dict(good, ndays=ndays)).get_data(as_text=True)
+    link = re.search(r'href="(/forecast\?[^"]+)"[^>]*>Has this range held up\?', html).group(1).replace('&amp;', '&')
+    assert 'stksymbol=ABC' in link and 'h={}'.format(h) in link
+    page = client.get(link).get_data(as_text=True)                      # and the link fills the form in
+    assert 'value="ABC"' in page and re.search(r'<option value="{}"\s+selected'.format(h), page)

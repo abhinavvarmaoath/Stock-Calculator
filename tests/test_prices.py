@@ -7,15 +7,23 @@ import pytest
 import prices
 
 
+class Calls(list):
+    # the symbols asked for, and in .periods how much history was asked for each time
+    def __init__(self):
+        super().__init__()
+        self.periods = []
+
+
 def fakeyf(monkeypatch, df=None, boom=None):
     # stand in for yfinance so the tests don't need the internet
-    calls = []
+    calls = Calls()
 
     class Ticker:
         def __init__(self, sym):
             calls.append(sym)
 
         def history(self, **kw):
+            calls.periods.append(kw.get('period'))
             if boom:
                 raise boom
             return df
@@ -53,11 +61,34 @@ def test_history_is_cached(monkeypatch):
     assert calls == ['ABC', 'XYZ']
 
 
+def test_a_longer_history_is_not_served_from_a_shorter_one(monkeypatch):
+    calls = fakeyf(monkeypatch, df=closes(100))
+    prices.history('ABC')
+    prices.history('ABC', years=10)
+    prices.history('ABC', years=10)
+    prices.history('ABC')
+    assert calls == ['ABC', 'ABC'] and calls.periods == ['2y', '10y']
+
+
+def test_the_cache_has_a_limit_and_forgets_the_oldest(monkeypatch):
+    fakeyf(monkeypatch, df=closes(100))
+    monkeypatch.setattr(prices, 'keep', 3)
+    for sym in ('A', 'B', 'C'):
+        prices.history(sym)
+    when, c = prices.cache[('B', 2)]
+    prices.cache[('B', 2)] = (when - prices.ttl - 1, c)
+    prices.history('B')                                 # fetched again, so it is now the newest
+    prices.history('D')
+    assert sorted(k[0] for k in prices.cache) == ['B', 'C', 'D']
+    prices.history('E')
+    assert sorted(k[0] for k in prices.cache) == ['B', 'D', 'E']
+
+
 def test_cache_expires(monkeypatch):
     calls = fakeyf(monkeypatch, df=closes(100))
     prices.history('ABC')
-    when, c = prices.cache['ABC']
-    prices.cache['ABC'] = (when - prices.ttl - 1, c)
+    when, c = prices.cache[('ABC', 2)]
+    prices.cache[('ABC', 2)] = (when - prices.ttl - 1, c)
     prices.history('ABC')
     assert calls == ['ABC', 'ABC']
 
@@ -118,7 +149,7 @@ def test_failed_lookups_are_not_cached(monkeypatch):
     fakeyf(monkeypatch, boom=ConnectionError())
     with pytest.raises(prices.PriceError):
         prices.history('ABC')
-    assert 'ABC' not in prices.cache
+    assert ('ABC', 2) not in prices.cache
 
 
 def test_error_has_a_short_form_for_the_agent():

@@ -1,10 +1,13 @@
 import math
 import re
 
+import numpy as np
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 
 import agent
+import forecast
+import limiter
 import prices
 import sim
 from calc import calc
@@ -33,6 +36,9 @@ simfields = [f for f in calcfields if f[0] != 'fnlprice'] + [
 
 horizons = {21: '1 month', 63: '3 months', 126: '6 months', 252: '1 year'}
 
+forecasts = limiter.Limiter(6, 600)     # new forecasts one address can ask for in 10 minutes. each takes a while
+maxprices = 4000                        # pasted closing prices, about 16 years of days
+
 
 @app.template_filter()
 def money(x):
@@ -43,6 +49,24 @@ def money(x):
 @app.template_filter()
 def pct(x):
     return '{:.2f}%'.format(float(x))
+
+
+@app.template_filter()
+def words(n):
+    return forecast.count(int(n))
+
+
+app.jinja_env.globals['methods'] = lambda: len(forecast.names)
+
+
+@app.template_filter()
+def signed(x):
+    return '{:+.1f}%'.format(float(x))
+
+
+@app.template_filter()
+def luck(p):
+    return '<0.001' if p < 0.001 else '{:.3f}'.format(p)
 
 
 def getnum(form, key, label, low, lowok, high, need, errs):
@@ -80,6 +104,30 @@ def getsym(form, errs):
         errs.append('Stock symbol must be 1 to 10 letters or numbers, like AAPL or BRK-B')
         return None
     return sym
+
+
+def getprices(form, errs):
+    # closing prices pasted in, oldest first, one a line. None when the box is empty.
+    # commas only count as thousands separators, because "1,234" read as two prices would
+    # change the numbers without anyone noticing
+    text = form.get('closes', '').strip()
+    if not text:
+        return None
+    out = []
+    for tok in text.replace(';', ' ').split():
+        raw = tok.lstrip('$')
+        if not re.fullmatch(r'\d+(?:\.\d+)?|\d{1,3}(?:,\d{3})+(?:\.\d+)?', raw):
+            errs.append("Couldn't read '{}' as a price. Paste just the closing prices, one on each line, oldest first.".format(tok[:20]))
+            return None
+        v = float(raw.replace(',', ''))
+        if v <= 0:
+            errs.append('Prices have to be above 0')
+            return None
+        out.append(v)
+        if len(out) > maxprices:
+            errs.append('Paste at most {:,} prices'.format(maxprices))
+            return None
+    return out
 
 
 @app.route('/')
@@ -157,15 +205,77 @@ def simulate():
     args = {k: '{:.10g}'.format(v) for k, v in vals.items() if v is not None}
     args.update(stksymbol=stksymbol, ndays=ndays, method=method)
 
+    # the forecast page to check this range with. it has no 6 month or 1 year, so those get 3 months
+    fcargs = dict(stksymbol=stksymbol, h=ndays if ndays in forecast.horizons else 63)
+
     return render_template('sim2.html', res=res, stksymbol=stksymbol, horizon=horizons[ndays],
                            method=method, src=src, fanrows=fanrows, binrows=binrows,
-                           chartdata=chartdata, args=args)
+                           chartdata=chartdata, args=args, fcargs=fcargs)
+
+
+def scoreerror(errs, code=400, openadv=False):
+    return render_template('forecast.html', form=request.form, errs=errs, horizons=forecast.horizons,
+                           openadv=openadv), code
+
+
+@app.route('/forecast', methods=['GET', 'POST'])
+def scoreboard():
+    if request.method == 'GET':
+        return render_template('forecast.html', form=request.args, errs=[], horizons=forecast.horizons)
+
+    errs = []
+    closes = getprices(request.form, errs)
+    if closes is not None and not request.form.get('stksymbol', '').strip():
+        label = 'your prices'
+    else:
+        label = getsym(request.form, errs)
+    try:
+        h = int(request.form.get('h', ''))
+    except ValueError:
+        h = 0
+    if h not in forecast.horizons:
+        errs.append('Pick how far ahead to forecast')
+    if errs:
+        return scoreerror(errs, openadv=bool(request.form.get('closes')))
+
+    if closes is None:
+        try:
+            closes = prices.history(label, forecast.years)
+        except prices.PriceError as e:
+            return scoreerror([e.what + ' Try again, or paste the closing prices under Advanced.'], openadv=True)
+    lp = np.log(closes)
+    if len(lp) < forecast.minimum(h):
+        return scoreerror(['{} has only {:,} daily prices. A {} forecast test needs at least {:,}. '
+                           'Try a shorter horizon, or paste more prices under Advanced.'.format(
+                               label, len(lp), forecast.horizons[h], forecast.minimum(h))], openadv=True)
+
+    if not forecast.known(lp, h):
+        fine, wait = forecasts.allowed(request.remote_addr)
+        if not fine:
+            return scoreerror(['That is a lot of forecasts. Each one takes a while to work out. '
+                               'Try again in {} seconds.'.format(wait)], 429)
+    try:
+        res = forecast.board(lp, h)
+    except forecast.Busy as e:
+        return scoreerror([str(e)], 503)
+
+    chartdata = dict(
+        horizon=res['horizon'],
+        rows=[dict(label=r['label'], skill=r['skill'], needs=r['needs'], edge=r['edge'])
+              for r in res['rows'] if r['name'] != 'naive' and r['skill'] is not None],
+        calibration=res['calibration'])
+    args = dict(h=h)
+    if label != 'your prices':
+        args['stksymbol'] = label
+    return render_template('forecast2.html', res=res, label=label, args=args, chartdata=chartdata,
+                           win=any(r['edge'] == 'better' for r in res['rows']))
 
 
 examples = [
     'I bought 100 shares of AAPL at $180 and paid $5 commission each way. With 15% tax, should I sell now or hold for 3 months?',
     "What's my break-even price on 50 shares of MSFT bought at $410 with $9.99 commission each way?",
     'How risky is holding 20 shares of TSLA that I bought at $250 for the next 6 months?',
+    'Could any forecasting method have beaten just assuming the price of NVDA stays put over a month?',
 ]
 
 
@@ -182,7 +292,7 @@ def agentapi():
         return jsonify(error=why), 503
     if not request.is_json:         # json only, so another site can't make your browser send this
         return jsonify(error='Send JSON.'), 415
-    fine, wait = agent.allowed(request.remote_addr)
+    fine, wait = agent.questions.allowed(request.remote_addr)
     if not fine:
         r = jsonify(error='Slow down a little. Try again in {} seconds.'.format(wait))
         r.status_code = 429
