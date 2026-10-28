@@ -1,6 +1,6 @@
 # Stock Calculator
 
-A small Flask web app for stock trades. The calculator works out the real profit (or loss) on a trade after commissions and capital gains tax. The simulator runs thousands of random price paths to show the range of things that could happen if you hold a position for a while. The forecast scoreboard tests forecasting methods on a stock's past prices and shows whether any of them beat "the price stays put" by more than luck. The assistant is an AI agent you can ask about a trade in plain English.
+A small Flask web app for stock trades. The calculator works out the real profit (or loss) on a trade after commissions and capital gains tax. The simulator runs thousands of random price paths to show the range of things that could happen if you hold a position for a while. The forecast scoreboard tests forecasting methods on a stock's past prices and shows whether any of them beat "the price stays put" by more than luck. The watchlist keeps an eye on positions you hold and tells you when a price crosses your break-even or reaches a target. The assistant is an AI agent you can ask about a trade in plain English.
 
 **Author:** Abhinav Varma ([@abhinavvarmaoath](https://github.com/abhinavvarmaoath))
 
@@ -77,6 +77,39 @@ How it is kept honest:
 
 Limits: a 1 week test needs 539 daily closes (about 2 years), a 1 month test 735 and a 3 month test 1,197, so a recent listing can only use the shorter ones. It takes 10 to 40 seconds. At most 2 run at once and one address gets 6 new ones every 10 minutes. The last 64 answers are remembered, so asking again for the same prices costs nothing. If the price lookup fails, or for something Yahoo does not have, paste your own closing prices under Advanced (oldest first, one on each line, up to 4,000).
 
+## Watchlist
+
+Add the positions you hold (shares, buy price, commissions, tax rate and, if you like, a target sell price) and the app watches the latest price for you. You are told when:
+
+- the price goes above your break-even, the sell price that covers both commissions, so selling would make money
+- it falls back to your break-even or below
+- it reaches your target
+
+An alert is a change of side since the last check, so you hear about each crossing once and not every day a price stays there. A price exactly on the break-even does not count as above it, since nothing is made there. Where a price is when you add a position is not news, only what happens after.
+
+Every alert is kept on the Watchlist page, with the calculator's numbers for that position at that price. Two optional extras can carry them to you. Put the settings in `.env` (see `.env.example`):
+
+- **email**: `ALERT_EMAIL_TO`, `SMTP_HOST` and, for most mail servers, `SMTP_USER` and `SMTP_PASSWORD`. It uses STARTTLS on port 587 (or TLS on port 465), and it refuses to send a password without TLS. For Gmail use an app password.
+- **webhook**: `ALERT_WEBHOOK_URL`. It posts `{"text": "..."}`, which Slack, Mattermost and most automation tools take, and the Discord form for a Discord address.
+
+If one way fails the alert is still kept and the page says which way failed.
+
+Checking: press **Check now** on the page, or run `python watch.py` yourself or from cron. The latest close is what counts, so once a day after the market closes is plenty. This runs it at 22:00 UTC on weekdays, which is after the US close all year:
+
+```
+0 22 * * 1-5  cd /path/to/Stock-Calculator && python watch.py
+```
+
+It says nothing when nothing happened, so cron only has something to mail you when there is an alert or a price it could not look up. It exits with status 1 for a lookup or a delivery that failed. `python watch.py -v` lists every position.
+
+Things to know:
+
+- The list lives in `watchlist.db` next to `app.py` (set `WATCHLIST_DB` to move it). It holds your positions, so git ignores it.
+- A position can only be added when its price can be looked up, so a mistyped symbol is caught straight away. There is room for 50, and a check asks Yahoo once for each symbol.
+- Prices are the latest Yahoo Finance has and can be a day old.
+- Two checks at the same moment (cron and the button) say a crossing only once.
+- Forms from other sites are refused, and one address gets 3 presses of Check now and 20 new positions every 10 minutes.
+
 ## Assistant
 
 Ask about a trade in plain English, like "I bought 100 shares of AAPL at $180 and paid $5 commission each way. With 15% tax, should I sell now or hold for 3 months?"
@@ -109,7 +142,7 @@ Then put your key in `ANTHROPIC_API_KEY` and a model name from Anthropic's model
 
 It uses your API credits: each question is a few model calls. Answers are not financial advice.
 
-If you put the app on the internet: the assistant spends your credits for anyone who can reach it, and a new forecast scoreboard keeps a few processors busy for 10 seconds or more. They only limit each address (10 questions a minute, 6 new forecasts every 10 minutes), and behind a proxy every visitor can look like the same address. Put a login in front of it first.
+If you put the app on the internet: the assistant spends your credits for anyone who can reach it, a new forecast scoreboard keeps a few processors busy for 10 seconds or more, and the watchlist is one shared list that anyone can add to or empty, whose Check now button sends alerts to your email and webhook. The limits are per address (10 questions a minute, 6 new forecasts every 10 minutes, 3 checks every 10 minutes), and behind a proxy every visitor can look like the same address. Put a login in front of it first.
 
 ## Run it
 
@@ -130,7 +163,7 @@ Then open http://localhost:8080 (set `FLASK_DEBUG=1` first if you want auto relo
 pytest
 ```
 
-The tests take about a minute, because they fit real forecasting models. None of them use the internet or an API key. The assistant is tested against a small fake of the Anthropic API that rejects the same bad requests the real one does.
+The tests take about a minute, because they fit real forecasting models. None of them use the internet or an API key, and none can send a real alert or touch your real watchlist. The assistant is tested against a small fake of the Anthropic API that rejects the same bad requests the real one does, and the alerts against small fake mail and webhook servers.
 
 To check the assistant against the real model, add your key and model to `.env` and run `pytest -m live`. It costs a few cents.
 
@@ -142,14 +175,12 @@ To check the assistant against the real model, add your key and model to `.env` 
 - `forecast.py` - the forecasting methods and the walk-forward test that scores them
 - `verdict.py` - the luck test, the adjustment for trying several methods and the simulator range check
 - `prices.py` - price history lookup
-- `limiter.py` - the per-address rate limit shared by the assistant and the scoreboard
+- `watch.py` - the watchlist: storage, price checks, crossing alerts, and `python watch.py` for cron
+- `notify.py` - the ways alerts reach you: email and a webhook
+- `limiter.py` - the per-address rate limit shared by the assistant, the scoreboard and the watchlist
 - `agent.py` - the assistant: prompt, the tool loop, limits
 - `tools.py` - the tools the assistant can use
 - `templates/` - the pages
 - `static/` - styles, the chart code (plain svg) and the chat page script
 - `tests/` - pytest tests, including the fake API in `fakeapi.py`
-- `.env.example` - the settings the assistant needs
-
-## Roadmap
-
-- watchlist alerts when a price crosses your break-even
+- `.env.example` - the settings for the assistant and for email and webhook alerts
