@@ -55,3 +55,6 @@ venv/
 
 # keys and secrets
 .env
+
+# your watchlist: positions and alerts, private
+watchlist.db*
