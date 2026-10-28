@@ -138,7 +138,7 @@ def test_prophet_is_given_the_last_two_years_and_nothing_else(monkeypatch):
                                     uncertainty_samples=0)
     assert np.array_equal(seen['fit']['y'].to_numpy(), lp[-504:])
     days = seen['fit']['ds']
-    assert len(days) == 504 and days.is_monotonic_increasing and set(days.dt.dayofweek) <= {0, 1, 2, 3, 4}
+    assert len(days) == 504 and days.is_monotonic_increasing and set(days.dt.day_of_week) <= {0, 1, 2, 3, 4}
     import pandas as pd
     assert seen['predict']['ds'].iloc[0] == pd.bdate_range(days.iloc[0], periods=504 + 21)[-1]
 
