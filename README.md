@@ -120,6 +120,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
+The install is big for a small app: the forecast scoreboard needs statsmodels, scikit-learn and Prophet, and Prophet brings its own Stan runtime and matplotlib. Expect roughly 150 MB more on disk than without them.
+
 Then open http://localhost:8080 (set `FLASK_DEBUG=1` first if you want auto reload). The calculator, simulator and forecast scoreboard work without any key, only the assistant needs one.
 
 ## Tests
