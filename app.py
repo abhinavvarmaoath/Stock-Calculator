@@ -1,5 +1,6 @@
 import math
 import re
+from urllib.parse import urlparse
 
 import numpy as np
 from dotenv import load_dotenv
@@ -8,8 +9,10 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 import agent
 import forecast
 import limiter
+import notify
 import prices
 import sim
+import watch
 from calc import calc
 
 load_dotenv()       # the assistant's key and model live in .env
@@ -36,8 +39,15 @@ simfields = [f for f in calcfields if f[0] != 'fnlprice'] + [
 
 horizons = {21: '1 month', 63: '3 months', 126: '6 months', 252: '1 year'}
 
+# same trade fields minus the final price, plus an optional target to be told about
+watchfields = [f for f in calcfields if f[0] != 'fnlprice'] + [
+    ('target', 'Target sell price', 0, False, 1e7, False),
+]
+
 forecasts = limiter.Limiter(6, 600)     # new forecasts one address can ask for in 10 minutes. each takes a while
 maxprices = 4000                        # pasted closing prices, about 16 years of days
+checks = limiter.Limiter(3, 600)        # presses of Check now one address gets in 10 minutes. each asks Yahoo about every symbol
+adds = limiter.Limiter(20, 600)         # positions one address can add in 10 minutes. each asks Yahoo for a price
 
 
 @app.template_filter()
@@ -49,6 +59,11 @@ def money(x):
 @app.template_filter()
 def pct(x):
     return '{:.2f}%'.format(float(x))
+
+
+@app.template_filter()
+def num(x):
+    return watch.num(float(x))
 
 
 @app.template_filter()
@@ -269,6 +284,77 @@ def scoreboard():
         args['stksymbol'] = label
     return render_template('forecast2.html', res=res, label=label, args=args, chartdata=chartdata,
                            win=any(r['edge'] == 'better' for r in res['rows']))
+
+
+def crosssite():
+    # a page on another site can make your browser post here, and these forms change the watchlist
+    # and send alerts. browsers say where a post came from. (none is you typing the address)
+    site = request.headers.get('Sec-Fetch-Site')
+    if site:
+        return site not in ('same-origin', 'none')
+    origin = request.headers.get('Origin')         # older browsers only have this one
+    return bool(origin) and urlparse(origin).netloc != request.host
+
+
+def crossed():
+    return 'That form was sent from another site, so it was ignored.', 403
+
+
+def watchpage(form, errs=(), note=None, code=200):
+    return render_template('watch.html', form=form, errs=list(errs), note=note, rows=watch.positions(),
+                           alerts=watch.recent(), channels=notify.channels(), maxwatch=watch.maxwatch), code
+
+
+@app.route('/watch')
+def watchlist():
+    added = request.args.get('added', '')
+    return watchpage(request.args, note='Added {} to the watchlist.'.format(added) if re.fullmatch(r'[A-Z0-9.\-]{1,10}', added) else None)
+
+
+@app.route('/watch/add', methods=['POST'])
+def watchadd():
+    if crosssite():
+        return crossed()
+    errs = []
+    sym = getsym(request.form, errs)
+    vals = getfields(request.form, watchfields, errs)
+    if errs:
+        return watchpage(request.form, errs, code=400)
+
+    fine, wait = adds.allowed(request.remote_addr)
+    if not fine:
+        return watchpage(request.form, ['Slow down a little. Try again in {} seconds.'.format(wait)], code=429)
+    try:
+        price = float(prices.history(sym, 1)[-1])       # where it starts. also proves the symbol is real
+    except prices.PriceError as e:
+        return watchpage(request.form, [e.what + ' A position can only be added when its price can be looked up, so try again in a moment.'], code=400)
+    try:
+        watch.add(sym, vals, price)
+    except ValueError as e:
+        return watchpage(request.form, [str(e)], code=400)
+    return redirect(url_for('watchlist', added=sym))
+
+
+@app.route('/watch/remove/<int:pid>', methods=['POST'])
+def watchremove(pid):
+    if crosssite():
+        return crossed()
+    watch.remove(pid)
+    return redirect(url_for('watchlist'))
+
+
+@app.route('/watch/check', methods=['POST'])
+def watchcheck():
+    if crosssite():
+        return crossed()
+    fine, wait = checks.allowed(request.remote_addr)
+    if not fine:
+        return watchpage({}, ['That is a lot of checks, and each one asks Yahoo about every symbol. Try again in {} seconds.'.format(wait)], code=429)
+    results = watch.check()
+    told = sum(len(r['alerts']) for r in results)
+    failed = sum(1 for r in results if r.get('error'))
+    note = 'Checked {} position{}: {} alert{}'.format(len(results), '' if len(results) == 1 else 's', told, '' if told == 1 else 's')
+    return watchpage({}, note=note + (', {} could not be checked.'.format(failed) if failed else '.'))
 
 
 examples = [

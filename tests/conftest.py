@@ -1,7 +1,9 @@
+import numpy as np
 import pytest
 
 import fakeapi
 import fakechan
+import prices
 
 
 @pytest.fixture(autouse=True)
@@ -57,3 +59,21 @@ def chan(monkeypatch):
     yield Chan()
     for c in made:
         c.stop()
+
+
+class Market:
+    # the latest price of each symbol, which a test can change between checks
+    def __init__(self, monkeypatch):
+        self.price, self.down, self.asked = {}, {}, []
+        monkeypatch.setattr(prices, 'history', self.history)
+
+    def history(self, sym, years=2):
+        self.asked.append((sym, years))
+        if sym in self.down:
+            raise prices.PriceError(self.down[sym])
+        return np.concatenate([np.linspace(100, 120, 99), [self.price[sym]]])
+
+
+@pytest.fixture
+def market(monkeypatch):
+    return Market(monkeypatch)

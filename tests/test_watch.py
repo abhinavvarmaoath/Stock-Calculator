@@ -1,35 +1,14 @@
-import json
+import os
 import subprocess
 import sys
 import threading
-import os
 
-import numpy as np
 import pytest
 
-import notify
 import prices
 import watch
 
 buy = dict(allotment=100, iniprice=180, buycmm=5, sellcmm=5, cptlgain=15, target=None)      # break-even is 180.10
-
-
-class Market:
-    # the latest price of each symbol, which a test can change between checks
-    def __init__(self, monkeypatch):
-        self.price, self.down, self.asked = {}, {}, []
-        monkeypatch.setattr(prices, 'history', self.history)
-
-    def history(self, sym, years=2):
-        self.asked.append((sym, years))
-        if sym in self.down:
-            raise prices.PriceError(self.down[sym])
-        return np.concatenate([np.linspace(100, 120, 99), [self.price[sym]]])
-
-
-@pytest.fixture
-def market(monkeypatch):
-    return Market(monkeypatch)
 
 
 class Told:

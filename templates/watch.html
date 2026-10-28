@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "macros.html" import field, symbol, errors %}
+{% block title %}Watchlist{% endblock %}
+{% block body %}
+<h1>Watchlist</h1>
+<p class="lead">Keep an eye on positions you hold. You are told when a price crosses your break-even, the sell price that covers both commissions, or reaches a target you set.</p>
+
+{{ errors(errs) }}
+{% if note %}<p class="notice" role="status">{{ note }}</p>{% endif %}
+
+<form method="post" action="{{ url_for('watchadd') }}" data-wait="adding">
+  <div class="grid">
+    {{ symbol(form) }}
+    {{ field(form, 'allotment', 'Number of shares') }}
+    {{ field(form, 'iniprice', 'Buy price', hint='What you paid per share') }}
+    {{ field(form, 'buycmm', 'Buy commission', '0') }}
+    {{ field(form, 'sellcmm', 'Sell commission', '0') }}
+    {{ field(form, 'cptlgain', 'Capital gain tax rate (%)', hint='Only charged on a gain') }}
+    {{ field(form, 'target', 'Target sell price', hint='Optional. You are told when the price reaches it', required=false) }}
+  </div>
+  <button type="submit">Add to the watchlist</button>
+  <p class="note" id="adding" role="status" hidden>Looking up the price...</p>
+</form>
+
+<h2>Your positions</h2>
+{% if rows %}
+<table class="tbl board">
+  <thead>
+    <tr><th>Position</th><th>Break-even</th><th>Latest price</th><th>Net if sold now</th><th>Target</th><th>Status</th><th>Checked</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <th scope="row">{{ r.symbol }}<small class="sub">{{ r.allotment|num }} shares at {{ r.iniprice|money }}</small>{% if r.lasterr %}<small>{{ r.lasterr }}</small>{% endif %}</th>
+      <td data-label="Break-even">{{ r.brkeven|money }}</td>
+      <td data-label="Latest price">{% if r.lastprice is none %}&mdash;{% else %}{{ r.lastprice|money }}{% endif %}</td>
+      <td data-label="Net if sold now">{% if r.lastprice is none %}&mdash;{% else %}{{ r.netprft|money }}{% endif %}</td>
+      <td data-label="Target">{% if r.target is none %}&mdash;{% else %}{{ r.target|money }}{% if r.tgtside == 'hit' %} <span class="badge good">&#10003; reached</span>{% endif %}{% endif %}</td>
+      <td data-label="Status">
+        {%- if r.beside == 'above' %}<span class="badge good">&#10003; Above break-even</span>
+        {%- elif r.beside == 'below' %}<span class="badge bad">&#8595; Not above break-even</span>
+        {%- else %}<span class="badge">Not checked yet</span>{% endif -%}
+      </td>
+      <td data-label="Checked">{% if r.lastcheck %}{{ r.lastcheck }} UTC{% else %}&mdash;{% endif %}</td>
+      <td class="act">
+        <form method="post" action="{{ url_for('watchremove', pid=r.id) }}"><button type="submit" class="alt small" aria-label="Remove {{ r.symbol }} from the watchlist">Remove</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<form method="post" action="{{ url_for('watchcheck') }}" class="bare" data-wait="checking">
+  <button type="submit">Check now</button>
+  <p class="note" id="checking" role="status" hidden>Asking for the latest prices...</p>
+</form>
+<p class="note">{{ rows|length }} of {{ maxwatch }} places used.</p>
+{% else %}
+<p class="note">Nothing on the list yet. Add a position above, or use Watch this position on a calculator report.</p>
+{% endif %}
+
+<h2>Recent alerts</h2>
+{% if alerts %}
+<ul class="alerts">
+  {% for a in alerts %}
+  <li>
+    <strong>{{ a.title }}</strong> <span class="when">{{ a.made }} UTC</span>
+    {% for line in a.body.split('\n')[:3] %}<span class="line">{{ line }}</span>{% endfor %}
+    <small>Sent: {{ a.sent }}</small>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="note">None yet. The first one appears here when a position crosses its break-even or reaches its target.</p>
+{% endif %}
+
+<h2>How you are told</h2>
+<ul class="assume">
+  <li>On this page, always.</li>
+  <li>By email: {% if 'email' in channels %}set up{% else %}not set up{% endif %}.</li>
+  <li>By webhook, for Slack, Discord, Mattermost and similar: {% if 'webhook' in channels %}set up{% else %}not set up{% endif %}.</li>
+  <li>To be told without opening this page, run <code>python watch.py</code> once a day after the market closes (see the README). Pressing Check now does the same thing.</li>
+</ul>
+<p class="note">An alert is a change of side since the last check, so you hear about each crossing once, not every day a price stays there. Prices are the latest Yahoo Finance has and can be a day old. This is not financial advice.</p>
+
+<script src="{{ url_for('static', filename='watch.js') }}"></script>
+{% endblock %}
