@@ -26,22 +26,21 @@
 {% if rows %}
 <table class="tbl board">
   <thead>
-    <tr><th>Position</th><th>Break-even</th><th>Latest price</th><th>Net if sold now</th><th>Target</th><th>Status</th><th>Checked</th><th></th></tr>
+    <tr><th>Position</th><th>Break-even</th><th>Latest price</th><th>Net if sold now</th><th>Target</th><th>Against break-even</th><th></th></tr>
   </thead>
   <tbody>
     {% for r in rows %}
     <tr>
-      <th scope="row">{{ r.symbol }}<small class="sub">{{ r.allotment|num }} shares at {{ r.iniprice|money }}</small>{% if r.lasterr %}<small>{{ r.lasterr }}</small>{% endif %}</th>
+      <th scope="row">{{ r.symbol }}<small class="sub">{{ r.allotment|num }} shares at {{ r.iniprice|money }}</small>{% if r.lastcheck %}<small class="sub">checked {{ r.lastcheck }} UTC</small>{% endif %}{% if r.lasterr %}<small>{{ r.lasterr }}</small>{% endif %}</th>
       <td data-label="Break-even">{{ r.brkeven|money }}</td>
       <td data-label="Latest price">{% if r.lastprice is none %}&mdash;{% else %}{{ r.lastprice|money }}{% endif %}</td>
       <td data-label="Net if sold now">{% if r.lastprice is none %}&mdash;{% else %}{{ r.netprft|money }}{% endif %}</td>
       <td data-label="Target">{% if r.target is none %}&mdash;{% else %}{{ r.target|money }}{% if r.tgtside == 'hit' %} <span class="badge good">&#10003; reached</span>{% endif %}{% endif %}</td>
-      <td data-label="Status">
-        {%- if r.beside == 'above' %}<span class="badge good">&#10003; Above break-even</span>
-        {%- elif r.beside == 'below' %}<span class="badge bad">&#8595; Not above break-even</span>
+      <td data-label="Against break-even">
+        {%- if r.beside == 'above' %}<span class="badge good">&#10003; Above</span>
+        {%- elif r.beside == 'below' %}<span class="badge bad">&#8595; At or below</span>
         {%- else %}<span class="badge">Not checked yet</span>{% endif -%}
       </td>
-      <td data-label="Checked">{% if r.lastcheck %}{{ r.lastcheck }} UTC{% else %}&mdash;{% endif %}</td>
       <td class="act">
         <form method="post" action="{{ url_for('watchremove', pid=r.id) }}"><button type="submit" class="alt small" aria-label="Remove {{ r.symbol }} from the watchlist">Remove</button></form>
       </td>

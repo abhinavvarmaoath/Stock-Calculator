@@ -84,7 +84,7 @@ def test_a_position_is_added_and_shown(client, market):
     assert 'Added AAPL to the watchlist.' in t
     assert 'AAPL 100 shares at $180.00' in t
     assert '$180.10' in t and '$175.00' in t and '-$510.00' in t                    # break-even, latest price, net if sold now
-    assert 'Not above break-even' in t and 'UTC' in t and '1 of 50 places used.' in t
+    assert '↓ At or below' in t and 'checked ' in t and 'UTC' in t and '1 of 50 places used.' in t
     [p] = watch.positions()
     assert (p['symbol'], p['allotment'], p['iniprice'], p['buycmm'], p['sellcmm'], p['cptlgain'], p['target']) == ('AAPL', 100, 180, 5, 5, 15, None)
     assert p['beside'] == 'below' and p['lastprice'] == 175
@@ -101,7 +101,7 @@ def test_a_position_added_above_its_break_even_starts_there_without_an_alert(cli
     market.price['AAPL'] = 190
     add(client)
     t = text(client.get('/watch'))
-    assert 'Above break-even' in t and 'None yet.' in t and watch.recent() == []
+    assert '✓ Above' in t and 'None yet.' in t and watch.recent() == []
 
 
 def test_a_position_added_past_its_target_shows_it_as_reached(client, market):
@@ -201,7 +201,7 @@ def test_check_now_says_what_crossed_and_keeps_the_alert(client, market):
     t = text(r)
     assert r.status_code == 200 and 'Checked 1 position: 1 alert.' in t
     assert 'AAPL is above your break-even' in t and 'AAPL is at $185.00, above your break-even sell price of $180.10.' in t
-    assert 'Sent: page' in t and 'Above break-even' in t and '$185.00' in t and '$416.50' in t
+    assert 'Sent: page' in t and '✓ Above' in t and '$185.00' in t and '$416.50' in t
     assert 'None yet.' not in t
 
 
